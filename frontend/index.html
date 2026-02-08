@@ -1,0 +1,1534 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>blocks-finance - Value Investing Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack.min.css" />
+    <style>
+      :root {
+        color-scheme: dark;
+        background: radial-gradient(circle at top left, #020617, #020617 45%, #000 100%);
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: transparent;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      }
+      main {
+        width: 100%;
+        max-width: 1600px;
+        margin: 0 auto;
+        padding: 1.5rem;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: #e5e7eb;
+      }
+      h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #e5e7eb;
+      }
+      p {
+        margin: 0 0 1rem;
+        font-size: 0.85rem;
+        color: #9ca3af;
+      }
+      
+      /* Header */
+      header.app-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid rgba(148,163,184,0.2);
+      }
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      .header-left h1 {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .header-left .badge {
+        font-size: 0.6rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 999px;
+        background: rgba(34, 197, 94, 0.2);
+        color: #4ade80;
+        font-weight: 500;
+      }
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      
+      /* Universe control */
+      .universe-control {
+        position: relative;
+      }
+      .universe-control .btn {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .universe-control .btn.active {
+        background: rgba(74, 222, 128, 0.15);
+        border-color: rgba(74, 222, 128, 0.5);
+        color: #4ade80;
+      }
+      .universe-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 0.5rem;
+        width: 320px;
+        background: rgba(15, 23, 42, 0.98);
+        border: 1px solid rgba(148,163,184,0.3);
+        border-radius: 10px;
+        padding: 0.75rem;
+        z-index: 100;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      }
+      .universe-dropdown[hidden] {
+        display: none;
+      }
+      .universe-dropdown-header {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #94a3b8;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+      }
+      .universe-dropdown input {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid rgba(148,163,184,0.3);
+        border-radius: 6px;
+        background: rgba(30, 41, 59, 0.6);
+        color: #e2e8f0;
+        font-size: 0.8rem;
+        margin-bottom: 0.5rem;
+      }
+      .universe-dropdown input:focus {
+        outline: none;
+        border-color: rgba(59, 130, 246, 0.5);
+      }
+      .universe-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+      }
+      .universe-actions .btn {
+        flex: 1;
+      }
+      .universe-saved-header {
+        font-size: 0.65rem;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid rgba(148,163,184,0.15);
+      }
+      .universe-saved-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.35rem 0.5rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.75rem;
+        color: #94a3b8;
+      }
+      .universe-saved-item:hover {
+        background: rgba(59, 130, 246, 0.1);
+        color: #e2e8f0;
+      }
+      .universe-saved-item .delete-btn {
+        opacity: 0;
+        background: none;
+        border: none;
+        color: #f87171;
+        cursor: pointer;
+        font-size: 0.8rem;
+      }
+      .universe-saved-item:hover .delete-btn {
+        opacity: 1;
+      }
+      
+      /* Dashboard control */
+      .dashboard-control {
+        position: relative;
+      }
+      .dashboard-control .btn.active {
+        background: rgba(139, 92, 246, 0.15);
+        border-color: rgba(139, 92, 246, 0.5);
+        color: #a78bfa;
+      }
+      .dashboard-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 0.5rem;
+        width: 280px;
+        background: rgba(15, 23, 42, 0.98);
+        border: 1px solid rgba(148,163,184,0.3);
+        border-radius: 10px;
+        padding: 0.75rem;
+        z-index: 100;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      }
+      .dashboard-dropdown[hidden] {
+        display: none;
+      }
+      .dashboard-dropdown-header {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #94a3b8;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+      }
+      .dashboard-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+      }
+      .dashboard-actions .btn {
+        flex: 1;
+      }
+      .dashboard-saved-header {
+        font-size: 0.65rem;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid rgba(148,163,184,0.15);
+      }
+      .dashboard-saved-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.35rem 0.5rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.75rem;
+        color: #94a3b8;
+      }
+      .dashboard-saved-item:hover {
+        background: rgba(139, 92, 246, 0.1);
+        color: #e2e8f0;
+      }
+      .dashboard-saved-item .delete-btn {
+        opacity: 0;
+        background: none;
+        border: none;
+        color: #f87171;
+        cursor: pointer;
+        font-size: 0.8rem;
+      }
+      .dashboard-saved-item:hover .delete-btn {
+        opacity: 1;
+      }
+      
+      /* Metric Tooltips */
+      .metric-tooltip-popup {
+        position: fixed;
+        z-index: 10000;
+        max-width: 320px;
+        padding: 0.75rem;
+        background: rgba(15, 23, 42, 0.98);
+        border: 1px solid rgba(148,163,184,0.3);
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        font-size: 0.75rem;
+        pointer-events: none;
+      }
+      .metric-tooltip-popup .metric-tooltip-name {
+        font-weight: 600;
+        color: #e2e8f0;
+        margin-bottom: 0.25rem;
+      }
+      .metric-tooltip-popup .metric-tooltip-desc {
+        color: #94a3b8;
+        margin-bottom: 0.35rem;
+      }
+      .metric-tooltip-popup .metric-tooltip-interp {
+        color: #cbd5e1;
+        font-style: italic;
+        margin-bottom: 0.35rem;
+      }
+      .metric-tooltip-popup .metric-tooltip-formula {
+        color: #4ade80;
+        font-family: 'SF Mono', monospace;
+        font-size: 0.7rem;
+        background: rgba(74, 222, 128, 0.1);
+        padding: 0.2rem 0.4rem;
+        border-radius: 4px;
+        margin-bottom: 0.25rem;
+      }
+      .metric-tooltip-popup .metric-tooltip-range {
+        color: #fbbf24;
+        font-size: 0.7rem;
+      }
+      
+      /* Edit mode toggle button */
+      #edit-mode-btn {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      #edit-mode-btn.active {
+        background: rgba(251, 191, 36, 0.15);
+        border-color: rgba(251, 191, 36, 0.5);
+        color: #fbbf24;
+      }
+      
+      /* GridStack styling */
+      .grid-stack {
+        background: transparent;
+      }
+      .grid-stack-item-content {
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 10px;
+        overflow: hidden;
+        transition: all 0.2s ease;
+      }
+      .grid-stack-item-content:hover {
+        border-color: rgba(148, 163, 184, 0.4);
+      }
+      
+      /* View mode - text selectable, no drag cursor */
+      .view-mode .grid-stack-item-content {
+        cursor: default;
+      }
+      .view-mode .panel-header,
+      .view-mode .gs-drag-handle {
+        cursor: default !important;
+      }
+      .view-mode .grid-stack-item {
+        pointer-events: auto;
+      }
+      
+      /* Edit mode - show drag/resize affordances */
+      .edit-mode .grid-stack-item-content {
+        border-color: rgba(251, 191, 36, 0.3);
+      }
+      .edit-mode .grid-stack-item-content:hover {
+        border-color: rgba(251, 191, 36, 0.6);
+        box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.2);
+      }
+      .edit-mode .panel-header,
+      .edit-mode .gs-drag-handle {
+        cursor: grab !important;
+      }
+      .edit-mode .panel-header:active,
+      .edit-mode .gs-drag-handle:active {
+        cursor: grabbing !important;
+      }
+      
+      /* Dragging state */
+      .grid-stack-item.ui-draggable-dragging .grid-stack-item-content {
+        border-color: rgba(59, 130, 246, 0.8) !important;
+        box-shadow: 0 8px 32px rgba(59, 130, 246, 0.3), 0 0 0 2px rgba(59, 130, 246, 0.4);
+        transform: scale(1.02);
+        opacity: 0.95;
+      }
+      
+      /* Drop zone placeholder */
+      .grid-stack-placeholder {
+        background: rgba(59, 130, 246, 0.1) !important;
+        border: 2px dashed rgba(59, 130, 246, 0.5) !important;
+        border-radius: 10px;
+      }
+      .grid-stack-placeholder > .placeholder-content {
+        background: transparent !important;
+        border: none !important;
+      }
+      
+      /* Resize handles - only visible in edit mode */
+      .grid-stack > .grid-stack-item > .ui-resizable-handle {
+        background: transparent;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+      }
+      .edit-mode .grid-stack > .grid-stack-item:hover > .ui-resizable-handle {
+        opacity: 1;
+      }
+      .grid-stack > .grid-stack-item > .ui-resizable-se {
+        background-image: none;
+        width: 20px;
+        height: 20px;
+        right: 2px;
+        bottom: 2px;
+      }
+      .grid-stack > .grid-stack-item > .ui-resizable-se::after {
+        content: '';
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        right: 2px;
+        bottom: 2px;
+        border-right: 2px solid rgba(251, 191, 36, 0.6);
+        border-bottom: 2px solid rgba(251, 191, 36, 0.6);
+        border-radius: 0 0 4px 0;
+      }
+      .grid-stack > .grid-stack-item > .ui-resizable-e::after,
+      .grid-stack > .grid-stack-item > .ui-resizable-w::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 4px;
+        height: 24px;
+        background: rgba(251, 191, 36, 0.5);
+        border-radius: 2px;
+      }
+      .grid-stack > .grid-stack-item > .ui-resizable-e::after {
+        right: 2px;
+      }
+      .grid-stack > .grid-stack-item > .ui-resizable-w::after {
+        left: 2px;
+      }
+      .grid-stack > .grid-stack-item > .ui-resizable-s::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 2px;
+        width: 24px;
+        height: 4px;
+        background: rgba(251, 191, 36, 0.5);
+        border-radius: 2px;
+      }
+      .gs-drag-handle {
+        cursor: grab;
+      }
+      
+      /* Universe Insights Panel */
+      .universe-insights-panel {
+        height: 100%;
+        overflow-y: auto;
+        padding: 0.75rem;
+      }
+      .universe-insights {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .insights-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(148,163,184,0.15);
+      }
+      .insights-header h3 {
+        margin: 0;
+        font-size: 0.95rem;
+        color: #e2e8f0;
+      }
+      .universe-badge {
+        font-size: 0.65rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 999px;
+        background: rgba(139, 92, 246, 0.2);
+        color: #a78bfa;
+      }
+      .insights-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .insight-card {
+        padding: 0.6rem 0.75rem;
+        border-radius: 8px;
+        background: rgba(30, 41, 59, 0.5);
+        border-left: 3px solid;
+      }
+      .insight-opportunity { border-color: #22c55e; }
+      .insight-risk { border-color: #ef4444; }
+      .insight-trend { border-color: #3b82f6; }
+      .insight-outlier { border-color: #f59e0b; }
+      .insight-correlation { border-color: #8b5cf6; }
+      .insight-header {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-bottom: 0.3rem;
+      }
+      .insight-icon {
+        font-size: 0.9rem;
+      }
+      .insight-title {
+        font-weight: 600;
+        font-size: 0.8rem;
+        color: #e2e8f0;
+      }
+      .actionable-badge {
+        font-size: 0.55rem;
+        padding: 0.1rem 0.35rem;
+        border-radius: 999px;
+        background: rgba(74, 222, 128, 0.2);
+        color: #4ade80;
+        margin-left: auto;
+      }
+      .insight-summary {
+        font-size: 0.75rem;
+        color: #cbd5e1;
+        margin-bottom: 0.25rem;
+      }
+      .insight-details {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        margin-bottom: 0.35rem;
+      }
+      .insight-tickers {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        margin-bottom: 0.35rem;
+      }
+      .ticker-tag {
+        display: inline-block;
+        padding: 0.1rem 0.3rem;
+        background: rgba(59, 130, 246, 0.2);
+        color: #93c5fd;
+        border-radius: 3px;
+        font-family: monospace;
+        margin-right: 0.2rem;
+      }
+      .insight-metrics {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        margin-bottom: 0.35rem;
+      }
+      .metric-badge {
+        font-size: 0.6rem;
+        padding: 0.1rem 0.35rem;
+        background: rgba(148, 163, 184, 0.15);
+        color: #94a3b8;
+        border-radius: 3px;
+        cursor: help;
+      }
+      .metric-badge:hover {
+        background: rgba(148, 163, 184, 0.25);
+        color: #e2e8f0;
+      }
+      .insight-confidence {
+        position: relative;
+        height: 16px;
+        background: rgba(30, 41, 59, 0.8);
+        border-radius: 8px;
+        overflow: hidden;
+        font-size: 0.6rem;
+      }
+      .confidence-bar {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        border-radius: 8px;
+        opacity: 0.3;
+      }
+      .insight-confidence span {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #94a3b8;
+      }
+      .insights-footer {
+        text-align: center;
+        color: #64748b;
+        font-size: 0.65rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid rgba(148,163,184,0.1);
+      }
+      .panel-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 200px;
+        color: #64748b;
+      }
+      .loading-spinner {
+        width: 24px;
+        height: 24px;
+        border: 2px solid rgba(148,163,184,0.3);
+        border-top-color: #3b82f6;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      
+      /* Dashboard container */
+      .dashboard-container {
+        min-height: 400px;
+      }
+      @media (max-width: 600px) {
+        .dashboard-container {
+          min-height: 300px;
+        }
+      }
+      
+      /* Drawer (right-side panel) */
+      .modal {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 420px;
+        max-width: 90vw;
+        background: rgba(15, 23, 42, 0.98);
+        border-left: 1px solid rgba(148,163,184,0.3);
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        transform: translateX(0);
+        transition: transform 0.25s ease;
+        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.4);
+      }
+      .modal[hidden] {
+        transform: translateX(100%);
+        pointer-events: none;
+      }
+      .modal-content {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        overflow: hidden;
+      }
+      .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid rgba(148,163,184,0.2);
+      }
+      .modal-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #e2e8f0;
+      }
+      .modal-close {
+        background: none;
+        border: none;
+        color: #94a3b8;
+        font-size: 1.5rem;
+        cursor: pointer;
+        line-height: 1;
+      }
+      .modal-close:hover {
+        color: #e2e8f0;
+      }
+      .modal-tabs {
+        display: flex;
+        border-bottom: 1px solid rgba(148,163,184,0.2);
+        padding: 0 1rem;
+      }
+      .modal-tab {
+        padding: 0.6rem 1rem;
+        background: none;
+        border: none;
+        color: #64748b;
+        font-size: 0.85rem;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        transition: all 0.15s ease;
+      }
+      .modal-tab:hover {
+        color: #e2e8f0;
+      }
+      .modal-tab.active {
+        color: #3b82f6;
+        border-bottom-color: #3b82f6;
+      }
+      .modal-body {
+        padding: 1.25rem;
+        overflow-y: auto;
+      }
+      .tab-content[hidden] {
+        display: none;
+      }
+      
+      /* Panel cards */
+      .panel-card {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(148,163,184,0.2);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .panel-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid rgba(148,163,184,0.15);
+        background: rgba(15, 23, 42, 0.4);
+      }
+      .panel-card-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #e2e8f0;
+      }
+      .panel-card-body {
+        padding: 0;
+      }
+      
+      /* Buttons */
+      .btn {
+        padding: 0.4rem 0.8rem;
+        border: 1px solid rgba(148,163,184,0.4);
+        border-radius: 6px;
+        background: transparent;
+        color: #e2e8f0;
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .btn:hover {
+        background: rgba(59, 130, 246, 0.1);
+        border-color: rgba(59, 130, 246, 0.5);
+      }
+      .btn-primary {
+        background: rgba(59, 130, 246, 0.2);
+        border-color: rgba(59, 130, 246, 0.5);
+        color: #93c5fd;
+      }
+      .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+      }
+      
+      /* Recipe list */
+      .recipe-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 0.75rem;
+      }
+      .recipe-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        background: rgba(30, 41, 59, 0.4);
+        border: 1px solid rgba(148,163,184,0.2);
+        border-radius: 6px;
+        transition: all 0.15s ease;
+      }
+      .recipe-card:hover {
+        border-color: rgba(59, 130, 246, 0.4);
+        background: rgba(30, 41, 59, 0.6);
+      }
+      .recipe-card.added-flash {
+        background: rgba(34, 197, 94, 0.2) !important;
+        border-color: rgba(34, 197, 94, 0.5) !important;
+      }
+      .recipe-card-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #e2e8f0;
+      }
+      .recipe-card-kind {
+        font-size: 0.65rem;
+        padding: 0.1rem 0.35rem;
+        border-radius: 999px;
+        background: rgba(148,163,184,0.2);
+        color: #94a3b8;
+        width: fit-content;
+      }
+      
+      /* Status indicator */
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.75rem;
+        color: #94a3b8;
+      }
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #4ade80;
+      }
+      .status-dot.offline {
+        background: #f87171;
+      }
+      
+      /* Settings Control */
+      .settings-control {
+        position: relative;
+      }
+      .settings-control .btn {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .settings-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 0.5rem;
+        width: 300px;
+        background: rgba(15, 23, 42, 0.98);
+        border: 1px solid rgba(148,163,184,0.3);
+        border-radius: 10px;
+        padding: 0;
+        z-index: 200;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      }
+      .settings-dropdown[hidden] {
+        display: none;
+      }
+      .settings-section {
+        padding: 0.75rem;
+        border-bottom: 1px solid rgba(148,163,184,0.15);
+      }
+      .settings-section:last-child {
+        border-bottom: none;
+      }
+      .settings-header {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: #94a3b8;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+      }
+      .settings-hint {
+        font-size: 0.7rem;
+        color: #64748b;
+        margin: 0 0 0.5rem;
+      }
+      .settings-hint a {
+        color: #60a5fa;
+      }
+      .status-detail {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+        color: #e2e8f0;
+      }
+      .api-key-input {
+        display: flex;
+        gap: 0.35rem;
+      }
+      .api-key-input input {
+        flex: 1;
+        padding: 0.4rem 0.5rem;
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(148,163,184,0.3);
+        border-radius: 5px;
+        color: #e2e8f0;
+        font-size: 0.75rem;
+        font-family: monospace;
+      }
+      .api-key-input input:focus {
+        outline: none;
+        border-color: rgba(59, 130, 246, 0.5);
+      }
+      .db-actions {
+        display: flex;
+        gap: 0.35rem;
+      }
+      .db-actions .btn {
+        flex: 1;
+        font-size: 0.7rem;
+      }
+      .seed-status {
+        margin-top: 0.5rem;
+        font-size: 0.7rem;
+        color: #94a3b8;
+      }
+      .seed-status.success {
+        color: #4ade80;
+      }
+      .seed-status.error {
+        color: #f87171;
+      }
+      
+      /* Hidden utility */
+      .hidden {
+        display: none !important;
+      }
+      
+      /* Search Combobox */
+      .search-combobox {
+        position: relative;
+      }
+      .search-input-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.3rem 0.6rem;
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(148,163,184,0.3);
+        border-radius: 6px;
+        transition: all 0.15s ease;
+      }
+      .search-input-wrapper:focus-within {
+        border-color: rgba(59, 130, 246, 0.5);
+        background: rgba(30, 41, 59, 0.8);
+      }
+      .search-icon {
+        font-size: 0.75rem;
+        opacity: 0.6;
+      }
+      .search-input {
+        background: transparent;
+        border: none;
+        outline: none;
+        color: #e2e8f0;
+        font-size: 0.8rem;
+        width: 140px;
+        transition: width 0.2s ease;
+      }
+      .search-input:focus {
+        width: 200px;
+      }
+      .search-input::placeholder {
+        color: #64748b;
+      }
+      .search-shortcut {
+        font-size: 0.6rem;
+        padding: 0.1rem 0.3rem;
+        background: rgba(148,163,184,0.2);
+        border-radius: 3px;
+        color: #64748b;
+        font-family: monospace;
+      }
+      .search-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin-top: 0.5rem;
+        background: rgba(15, 23, 42, 0.98);
+        border: 1px solid rgba(148,163,184,0.3);
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        z-index: 200;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      .search-dropdown[hidden] {
+        display: none;
+      }
+      .search-result {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        cursor: pointer;
+        transition: background 0.1s ease;
+      }
+      .search-result:hover,
+      .search-result.selected {
+        background: rgba(59, 130, 246, 0.15);
+      }
+      .result-ticker {
+        font-weight: 600;
+        color: #e2e8f0;
+        font-size: 0.85rem;
+      }
+      .result-meta {
+        display: flex;
+        gap: 0.5rem;
+        font-size: 0.7rem;
+        color: #94a3b8;
+      }
+      .result-price {
+        color: #4ade80;
+      }
+      .search-empty,
+      .search-loading {
+        padding: 1rem;
+        text-align: center;
+        color: #64748b;
+        font-size: 0.8rem;
+      }
+      
+      /* Ticker Links */
+      .ticker-link {
+        color: inherit;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.15s ease;
+      }
+      .ticker-link:hover {
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      
+      /* Stock Detail View */
+      .stock-detail {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .stock-detail-header {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        padding-bottom: 1rem;
+        margin-bottom: 1.5rem;
+        border-bottom: 1px solid rgba(148,163,184,0.2);
+      }
+      .back-btn {
+        background: none;
+        border: 1px solid rgba(148,163,184,0.3);
+        color: #94a3b8;
+        padding: 0.4rem 0.8rem;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        transition: all 0.15s ease;
+      }
+      .back-btn:hover {
+        background: rgba(148,163,184,0.1);
+        color: #e2e8f0;
+      }
+      .stock-title {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+      }
+      .stock-title h1 {
+        margin: 0;
+        font-size: 1.75rem;
+        color: #e2e8f0;
+      }
+      .stock-price {
+        font-size: 1.25rem;
+        color: #4ade80;
+        font-weight: 600;
+      }
+      .stock-cap {
+        font-size: 0.85rem;
+        color: #94a3b8;
+      }
+      .refresh-btn {
+        margin-left: auto;
+        background: none;
+        border: 1px solid rgba(148,163,184,0.3);
+        color: #94a3b8;
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 1rem;
+        transition: all 0.15s ease;
+      }
+      .refresh-btn:hover {
+        background: rgba(148,163,184,0.1);
+        color: #e2e8f0;
+      }
+      .refresh-btn:active {
+        transform: rotate(180deg);
+      }
+      
+      /* Score Cards */
+      .score-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+      }
+      .score-card {
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148,163,184,0.2);
+        border-radius: 10px;
+        padding: 1rem;
+      }
+      .score-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.75rem;
+      }
+      .score-title {
+        font-weight: 600;
+        color: #e2e8f0;
+        font-size: 0.95rem;
+      }
+      .score-badge {
+        padding: 0.25rem 0.6rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .score-details {
+        font-size: 0.75rem;
+        color: #94a3b8;
+        line-height: 1.6;
+      }
+      
+      /* Metrics Grid */
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 1rem;
+      }
+      .metrics-section {
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148,163,184,0.2);
+        border-radius: 10px;
+        padding: 1rem;
+      }
+      .metrics-section h3 {
+        margin: 0 0 0.75rem;
+        font-size: 0.85rem;
+        color: #e2e8f0;
+      }
+      .metrics-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+      .metric-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.3rem 0;
+        border-bottom: 1px solid rgba(148,163,184,0.1);
+      }
+      .metric-row:last-child {
+        border-bottom: none;
+      }
+      .metric-name {
+        font-size: 0.75rem;
+        color: #94a3b8;
+      }
+      .metric-value {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #e2e8f0;
+        font-family: 'SF Mono', monospace;
+      }
+      .metric-row.good .metric-value {
+        color: #4ade80;
+      }
+      .metric-row.bad .metric-value {
+        color: #f87171;
+      }
+      
+      .stock-detail-loading,
+      .stock-detail-error,
+      .stock-detail-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 300px;
+        color: #64748b;
+        gap: 1rem;
+      }
+      .stock-detail-error .error-icon {
+        font-size: 2rem;
+      }
+      
+      /* Analyst Recommendations Section */
+      .analyst-section, .whale-section {
+        margin-top: 1.5rem;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148,163,184,0.2);
+        border-radius: 10px;
+        padding: 1rem;
+      }
+      .analyst-section h3, .whale-section h3 {
+        margin: 0 0 1rem;
+        font-size: 0.9rem;
+        color: #e2e8f0;
+      }
+      .analyst-content {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      .consensus-badge {
+        display: inline-block;
+        padding: 0.35rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        width: fit-content;
+      }
+      .analyst-bars {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .analyst-bar-row {
+        display: grid;
+        grid-template-columns: 80px 1fr 40px;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .bar-label {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        text-align: right;
+      }
+      .bar-container {
+        height: 16px;
+        background: rgba(148,163,184,0.15);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .bar {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s ease;
+      }
+      .bar.strong-buy { background: #22c55e; }
+      .bar.buy { background: #86efac; }
+      .bar.hold { background: #fbbf24; }
+      .bar.sell { background: #fb923c; }
+      .bar.strong-sell { background: #ef4444; }
+      .bar-count {
+        font-size: 0.75rem;
+        color: #e2e8f0;
+        font-weight: 600;
+        font-family: 'SF Mono', monospace;
+      }
+      .analyst-note, .whale-note {
+        font-size: 0.7rem;
+        color: #64748b;
+        margin-top: 0.5rem;
+      }
+      .no-data {
+        font-size: 0.8rem;
+        color: #64748b;
+        margin: 0;
+      }
+      
+      /* Whale Holders Table */
+      .whale-table {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+      .whale-header, .whale-row {
+        display: grid;
+        grid-template-columns: 1fr 100px 80px;
+        gap: 0.5rem;
+        padding: 0.5rem 0;
+      }
+      .whale-header {
+        font-size: 0.7rem;
+        color: #64748b;
+        text-transform: uppercase;
+        border-bottom: 1px solid rgba(148,163,184,0.2);
+      }
+      .whale-row {
+        font-size: 0.8rem;
+        border-bottom: 1px solid rgba(148,163,184,0.1);
+      }
+      .whale-row:last-child { border-bottom: none; }
+      .holder-name {
+        color: #e2e8f0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .whale-row .shares {
+        color: #94a3b8;
+        font-family: 'SF Mono', monospace;
+        text-align: right;
+      }
+      .whale-row .change {
+        font-family: 'SF Mono', monospace;
+        text-align: right;
+      }
+      .whale-row .change.up { color: #4ade80; }
+      .whale-row .change.down { color: #f87171; }
+      
+      /* Alt Data Grid (Insider Activity + News) */
+      .alt-data-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 1rem;
+        margin-top: 1.5rem;
+      }
+      .alt-data-section {
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148,163,184,0.2);
+        border-radius: 10px;
+        padding: 1rem;
+        overflow: hidden;
+      }
+      .alt-data-section h3 {
+        margin: 0 0 0.75rem;
+        font-size: 0.9rem;
+        color: #e2e8f0;
+      }
+      .alt-data-section insider-activity-panel,
+      .alt-data-section company-news-panel {
+        display: block;
+        max-height: 350px;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="app-header">
+        <div class="header-left">
+          <h1>📊 blocks-finance</h1>
+        </div>
+        <div class="header-right">
+          <search-combobox></search-combobox>
+          <button class="btn btn-sm" id="edit-mode-btn" title="Toggle edit mode">
+            <span id="edit-mode-icon">👁️</span>
+            <span id="edit-mode-label">View</span>
+          </button>
+          <div class="dashboard-control">
+            <button class="btn btn-sm" id="dashboard-btn" title="Saved dashboard views">
+              <span>📊</span>
+              <span>Views</span>
+            </button>
+            <div class="dashboard-dropdown" id="dashboard-dropdown" hidden>
+              <div class="dashboard-dropdown-header">Dashboard Views</div>
+              <div class="dashboard-actions">
+                <button class="btn btn-sm btn-primary" id="dashboard-save">💾 Save Current</button>
+                <button class="btn btn-sm btn-ghost" id="dashboard-reset">↺ Reset</button>
+              </div>
+              <div class="dashboard-saved" id="dashboard-saved">
+                <div class="dashboard-saved-header">Saved Dashboards</div>
+                <!-- Populated by JS -->
+              </div>
+            </div>
+          </div>
+          <div class="universe-control">
+            <button class="btn btn-sm" id="universe-btn" title="Set global universe">
+              <span id="universe-icon">🌐</span>
+              <span id="universe-label">All Stocks</span>
+            </button>
+            <div class="universe-dropdown" id="universe-dropdown" hidden>
+              <div class="universe-dropdown-header">Global Universe</div>
+              <input type="text" id="universe-input" placeholder="AAPL, MSFT, GOOGL..." />
+              <div class="universe-actions">
+                <button class="btn btn-sm" id="universe-apply">Apply to All</button>
+                <button class="btn btn-sm btn-ghost" id="universe-clear">Clear (Independent)</button>
+              </div>
+              <div class="universe-saved" id="universe-saved">
+                <div class="universe-saved-header">Saved Universes</div>
+                <!-- Populated by JS -->
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-primary" id="add-panel-btn">+ Add Panel</button>
+          <div class="settings-control">
+            <button class="btn btn-sm" id="settings-btn" title="Settings">
+              <span class="status-dot" id="status-dot"></span>
+              <span id="status-label">Offline</span>
+            </button>
+            <div class="settings-dropdown" id="settings-dropdown" hidden>
+              <div class="settings-section">
+                <div class="settings-header">Connection Status</div>
+                <div class="status-detail" id="status-detail">
+                  <span class="status-dot" id="status-dot-detail"></span>
+                  <span id="status-text">Checking...</span>
+                </div>
+              </div>
+              
+              <div class="settings-section">
+                <div class="settings-header">FMP API Key</div>
+                <p class="settings-hint">Required for live market data. <a href="https://financialmodelingprep.com/developer/docs/" target="_blank">Get free key</a></p>
+                <div class="api-key-input">
+                  <input type="password" id="fmp-api-key" placeholder="Enter your FMP API key" autocomplete="off" />
+                  <button class="btn btn-sm" id="toggle-key-visibility" title="Show/hide">👁️</button>
+                </div>
+                <button class="btn btn-sm btn-primary" id="save-api-key" style="width: 100%; margin-top: 0.5rem;">Save Key</button>
+              </div>
+              
+              <div class="settings-section">
+                <div class="settings-header">Data</div>
+                <button class="btn btn-sm btn-primary" id="ingest-fmp-btn" style="width: 100%;">📥 Ingest from FMP</button>
+                <p class="settings-hint" style="margin-top: 0.5rem;">Pulls latest fundamentals for your tickers. Data persists in DuckDB.</p>
+                <div class="ingest-status" id="ingest-status"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+      
+      <!-- Stock Detail View (hidden by default) -->
+      <div id="stock-detail-container" class="hidden">
+        <!-- Stock detail view rendered here -->
+      </div>
+      
+      <!-- Main Dashboard Grid -->
+      <div class="dashboard-container" id="dashboard-grid">
+        <!-- Panels are added dynamically -->
+      </div>
+      
+      <!-- Add Panel Modal -->
+      <div class="modal" id="add-panel-modal" hidden>
+        <div class="modal-content">
+          <div class="modal-header">
+            <span class="modal-title">Add Panels</span>
+            <button class="btn btn-sm" id="add-panel-close">Done</button>
+          </div>
+          <div class="modal-tabs">
+            <button class="modal-tab active" data-tab="assistant">🤖 Assistant</button>
+            <button class="modal-tab" data-tab="browse">📂 Browse</button>
+          </div>
+          <div class="modal-body">
+            <div id="tab-assistant" class="tab-content">
+              <visualization-assistant id="viz-assistant"></visualization-assistant>
+            </div>
+            <div id="tab-browse" class="tab-content" hidden>
+              <div class="recipe-grid" id="recipe-picker">
+                <!-- Populated by JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+    
+    <script type="module" src="./src/main.ts"></script>
+    <script>
+      const API_URL = window.VITE_API_URL || 'http://localhost:8000';
+      
+      // Settings panel logic
+      function initSettings() {
+        const settingsBtn = document.getElementById('settings-btn');
+        const settingsDropdown = document.getElementById('settings-dropdown');
+        const fmpKeyInput = document.getElementById('fmp-api-key');
+        const toggleVisibility = document.getElementById('toggle-key-visibility');
+        const saveKeyBtn = document.getElementById('save-api-key');
+        const ingestBtn = document.getElementById('ingest-fmp-btn');
+        const ingestStatus = document.getElementById('ingest-status');
+        
+        // Load saved API key
+        const savedKey = localStorage.getItem('blocks-fmp-api-key');
+        if (savedKey && fmpKeyInput) {
+          fmpKeyInput.value = savedKey;
+        }
+        
+        // Toggle dropdown
+        settingsBtn?.addEventListener('click', () => {
+          settingsDropdown.hidden = !settingsDropdown.hidden;
+        });
+        
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+          if (!e.target.closest('.settings-control')) {
+            settingsDropdown.hidden = true;
+          }
+        });
+        
+        // Toggle key visibility
+        toggleVisibility?.addEventListener('click', () => {
+          if (fmpKeyInput.type === 'password') {
+            fmpKeyInput.type = 'text';
+            toggleVisibility.textContent = '🙈';
+          } else {
+            fmpKeyInput.type = 'password';
+            toggleVisibility.textContent = '👁️';
+          }
+        });
+        
+        // Save API key
+        saveKeyBtn?.addEventListener('click', () => {
+          const key = fmpKeyInput?.value?.trim();
+          if (key) {
+            localStorage.setItem('blocks-fmp-api-key', key);
+            ingestStatus.textContent = '✅ API key saved';
+            ingestStatus.className = 'ingest-status success';
+            setTimeout(() => { ingestStatus.textContent = ''; }, 2000);
+          }
+        });
+        
+        // Ingest from FMP
+        ingestBtn?.addEventListener('click', async () => {
+          const key = localStorage.getItem('blocks-fmp-api-key');
+          if (!key) {
+            ingestStatus.textContent = '⚠️ Please save your FMP API key first';
+            ingestStatus.className = 'ingest-status error';
+            return;
+          }
+          
+          ingestBtn.disabled = true;
+          ingestBtn.textContent = '⏳ Ingesting...';
+          ingestStatus.textContent = '';
+          
+          try {
+            const resp = await fetch(`${API_URL}/ingest/fmp`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ api_key: key })
+            });
+            
+            if (resp.ok) {
+              const data = await resp.json();
+              ingestStatus.textContent = `✅ Ingested ${data.ingested || 0} tickers`;
+              ingestStatus.className = 'ingest-status success';
+            } else {
+              const err = await resp.json().catch(() => ({}));
+              ingestStatus.textContent = `❌ ${err.detail || 'Ingest failed'}`;
+              ingestStatus.className = 'ingest-status error';
+            }
+          } catch (e) {
+            ingestStatus.textContent = '❌ Could not connect to backend';
+            ingestStatus.className = 'ingest-status error';
+          }
+          
+          ingestBtn.disabled = false;
+          ingestBtn.textContent = '📥 Ingest from FMP';
+        });
+        
+        // Check connection status
+        checkConnection();
+      }
+      
+      async function checkConnection() {
+        const statusDot = document.getElementById('status-dot');
+        const statusDotDetail = document.getElementById('status-dot-detail');
+        const statusLabel = document.getElementById('status-label');
+        const statusText = document.getElementById('status-text');
+        
+        try {
+          const resp = await fetch(`${API_URL}/health`);
+          if (resp.ok) {
+            statusDot?.classList.remove('offline');
+            statusDotDetail?.classList.remove('offline');
+            if (statusLabel) statusLabel.textContent = 'Connected';
+            if (statusText) statusText.textContent = 'Backend is running';
+          } else {
+            throw new Error('Not OK');
+          }
+        } catch (e) {
+          statusDot?.classList.add('offline');
+          statusDotDetail?.classList.add('offline');
+          if (statusLabel) statusLabel.textContent = 'Offline';
+          if (statusText) statusText.textContent = 'Cannot reach backend';
+        }
+      }
+      
+      // Init on load
+      document.addEventListener('DOMContentLoaded', initSettings);
+    </script>
+  </body>
+</html>

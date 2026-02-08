@@ -1,0 +1,38 @@
+# Environment files (API keys, secrets)
+.env
+.env.*
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Database files
+*.duckdb
+*.duckdb.wal
+data/
+
+# Node
+node_modules/
+dist/
+.cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+*.egg
+*.whl
+build/

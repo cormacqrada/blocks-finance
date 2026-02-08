@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../schema/manifest.schema.json",
+  "name": "frontend-web",
+  "version": "0.1.0",
+  "description": "Web Components frontend template for Blocks with Capacitor-ready setup.",
+  "blocks": [],
+  "collections": []
+}
