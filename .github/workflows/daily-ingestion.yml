@@ -2,16 +2,12 @@ name: Daily Data Ingestion
 
 # Runs Mon–Fri at 06:30 UTC (before US market open).
 # The Render free-tier service spins down after 15 min idle and takes ~50s to
-# cold-start.  The health-check step below wakes it before heavy ingest work.
+# cold-start. The runner warms it up before sending heavy ingest work.
 #
-# Equivalent to:  python -m app.run_ingestion --preset <preset> --period 2y
-# Same 5 sources, same order, same payloads:
-#   1. fmp_prices  (FMP daily OHLCV — skipped if no FMP_API_KEY; replaces
-#      yfinance which Yahoo rate-limits from datacenter IPs)
-#   2. FMP         (fundamentals — skipped if no FMP_API_KEY)
-#   3. FRED        (macro indicators — skipped if no FRED_API_KEY)
-#   4. Finnhub     (news + analyst recs — skipped if no FINNHUB_API_KEY)
-#   5. SEC EDGAR   (free — 13F holdings + Form 4 insiders)
+# Uses the Python ingestion runner (app.run_ingestion) which batches tickers
+# across multiple HTTP requests — critical on Render free tier where one giant
+# request for the whole SP500 blocks the single worker and times out every
+# later source. Sources without API keys are skipped automatically.
 #
 # Required GitHub secret:
 #   BACKEND_URL  →  https://blocks-finance.onrender.com  (no trailing slash)
@@ -35,7 +31,7 @@ on:
         options: ["default", "sp500"]
         default: "sp500"
       period:
-        description: "yfinance history period"
+        description: "Price history period"
         type: choice
         options: ["1y", "2y", "5y"]
         default: "2y"
@@ -44,77 +40,44 @@ jobs:
   ingest:
     name: Ingest price & fundamentals
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # SP500 (~500 tickers) in batches of 25 across 5 sources takes a while on
+    # Render free tier (DuckLake upserts are network-bound). 90 min headroom.
+    timeout-minutes: 90
 
-    # Map secrets → env once so the `if:` guards below are reliable.
-    # (Direct `if: ${{ secrets.X != '' }}` checks are flaky in GitHub Actions.)
     env:
-      BACKEND_URL:     ${{ secrets.BACKEND_URL }}
-      FMP_API_KEY:     ${{ secrets.FMP_API_KEY }}
-      FRED_API_KEY:    ${{ secrets.FRED_API_KEY }}
-      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
-      PRESET:          ${{ github.event.inputs.preset || 'sp500' }}
-      PERIOD:          ${{ github.event.inputs.period || '2y' }}
-      HAS_FMP:         ${{ secrets.FMP_API_KEY != '' }}
-      HAS_FRED:        ${{ secrets.FRED_API_KEY != '' }}
-      HAS_FINNHUB:     ${{ secrets.FINNHUB_API_KEY != '' }}
+      BLOCKS_FINANCE_BACKEND_URL: ${{ secrets.BACKEND_URL }}
+      FMP_API_KEY:                ${{ secrets.FMP_API_KEY }}
+      FRED_API_KEY:               ${{ secrets.FRED_API_KEY }}
+      FINNHUB_API_KEY:            ${{ secrets.FINNHUB_API_KEY }}
+      PRESET:                     ${{ github.event.inputs.preset || 'sp500' }}
+      PERIOD:                     ${{ github.event.inputs.period || '2y' }}
 
     steps:
       - name: Show config
         run: |
-          echo "Backend: $BACKEND_URL"
+          echo "Backend: $BLOCKS_FINANCE_BACKEND_URL"
           echo "Preset:  $PRESET"
           echo "Period:  $PERIOD"
-          echo "Keys:    FMP=$HAS_FMP  FRED=$HAS_FRED  FINNHUB=$HAS_FINNHUB"
+          echo "Keys:    FMP=${FMP_API_KEY:+set}  FRED=${FRED_API_KEY:+set}  FINNHUB=${FINNHUB_API_KEY:+set}"
 
-      - name: Wake up Render service (health check)
-        run: |
-          curl --fail --retry 10 --retry-delay 10 --retry-all-errors "$BACKEND_URL/health"
+      - uses: actions/checkout@v4
 
-      # ── 1. FMP daily price history (skipped if no FMP_API_KEY secret) ─────────
-      # Replaces yfinance, which Yahoo rate-limits from datacenter IPs.
-      - name: Ingest FMP price history
-        if: env.HAS_FMP == 'true'
-        run: |
-          curl --fail --max-time 600 -s -X POST "$BACKEND_URL/ingest/fmp_prices" \
-            -H "Content-Type: application/json" \
-            -d "{\"preset\": \"$PRESET\", \"period\": \"$PERIOD\"}" \
-            | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
 
-      # ── 2. FMP fundamentals (skipped if no FMP_API_KEY secret) ───────────────
-      - name: Ingest FMP fundamentals
-        if: env.HAS_FMP == 'true'
-        run: |
-          curl --fail --max-time 300 -s -X POST "$BACKEND_URL/ingest/fmp" \
-            -H "Content-Type: application/json" \
-            -d "{\"preset\": \"$PRESET\", \"periods\": 4, \"period\": \"quarter\", \"api_key\": \"$FMP_API_KEY\"}" \
-            | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
 
-      # ── 3. FRED macro indicators (skipped if no FRED_API_KEY secret) ─────────
-      - name: Ingest FRED macro
-        if: env.HAS_FRED == 'true'
+      # The runner warms up the backend (handles Render cold start), resolves
+      # the universe, then batches every per-ticker source into small HTTP
+      # requests so no single call blocks the Render worker.
+      - name: Run ingestion
+        working-directory: backend
         run: |
-          curl --fail --max-time 120 -s -X POST "$BACKEND_URL/ingest/fred" \
-            -H "Content-Type: application/json" \
-            -d "{\"years\": 5, \"api_key\": \"$FRED_API_KEY\"}" \
-            | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
-
-      # ── 4. Finnhub news + analyst recs (skipped if no FINNHUB_API_KEY secret) ─
-      - name: Ingest Finnhub
-        if: env.HAS_FINNHUB == 'true'
-        run: |
-          curl --fail --max-time 120 -s -X POST "$BACKEND_URL/ingest/finnhub" \
-            -H "Content-Type: application/json" \
-            -d "{\"preset\": \"$PRESET\", \"api_key\": \"$FINNHUB_API_KEY\", \"include_news\": true, \"include_recommendations\": true}" \
-            | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
-
-      # ── 5. SEC EDGAR (free — 13F + Form 4 insiders) ──────────────────────────
-      - name: Ingest SEC EDGAR
-        run: |
-          curl --fail --max-time 300 -s -X POST "$BACKEND_URL/ingest/sec_edgar" \
-            -H "Content-Type: application/json" \
-            -d "{\"preset\": \"$PRESET\", \"include_13f\": true, \"include_insiders\": true}" \
-            | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
+          python -m app.run_ingestion --preset "$PRESET" --period "$PERIOD"
 
       - name: Done
         run: echo "Ingestion complete at $(date -u)"

@@ -50,8 +50,10 @@ TIMEOUTS: dict[str, float] = {
 }
 
 # Default batch size when splitting a large ticker list across multiple calls.
-# A batch of 50 takes ≈ 60-120 s for yfinance, well within any server timeout.
-DEFAULT_BATCH_SIZE = 50
+# DuckLake upserts (Neon catalog + R2) are network-bound per row, so batches
+# must stay small enough that one batch finishes well within the source
+# timeout. 25 tickers ≈ 30-90 s per batch on Render free tier.
+DEFAULT_BATCH_SIZE = 25
 
 
 def _get_tickers(args_tickers: List[str] | None, preset: str | None) -> List[str]:
@@ -146,19 +148,36 @@ async def run_ingest_batched(
     batch_size: int,
     required_env: str | None = None,
 ) -> None:
-    """Run an ingest endpoint in ticker batches, accumulating results."""
+    """Run an ingest endpoint in ticker batches, accumulating results.
+
+    Batching is critical on Render free tier: one giant request for the whole
+    universe blocks the single worker, so every later source times out while
+    the server is still grinding through the first.  Batching keeps each HTTP
+    request short and lets the server finish one batch before the next arrives.
+    """
     if required_env and not os.getenv(required_env):
         print(f"  ⏭ {name}: skipped (set {required_env} for this source)")
         return
+    if not tickers:
+        print(f"  ⏭ {name}: no tickers to ingest")
+        return
     batches = [tickers[i : i + batch_size] for i in range(0, len(tickers), batch_size)]
     total_ingested = 0
+    failed_batches = 0
     for i, batch in enumerate(batches, 1):
         print(f"  [{name}] batch {i}/{len(batches)} — {batch[0]}…{batch[-1]} ({len(batch)} tickers)")
         payload = {"tickers": batch, **extra_payload}
         result = await run_ingest(client, name, url, payload)
         if result and isinstance(result, dict):
-            total_ingested += result.get("ingested", result.get("price_rows", result.get("count", 0)))
-    print(f"  ✅ {name}: done ({total_ingested} rows across {len(batches)} batches)")
+            total_ingested += result.get(
+                "ingested",
+                result.get("price_records", result.get("price_rows", result.get("count", 0))),
+            )
+        else:
+            failed_batches += 1
+    status = "✅" if failed_batches == 0 else "⚠️"
+    print(f"  {status} {name}: done ({total_ingested} rows across {len(batches)} batches, "
+          f"{failed_batches} failed)")
 
 
 async def run_all(
@@ -172,52 +191,34 @@ async def run_all(
 ) -> None:
     """Run all ingestion endpoints in a sensible order.
 
-    When a `preset` is provided (and tickers weren't given explicitly), the
-    server resolves the universe itself — this avoids sending 500 tickers over
-    HTTP and lets the backend cache/chunk as needed.
-
-    When explicit tickers are provided they are sent in batches of `batch_size`
-    so no single request takes too long.
+    Every per-ticker source is sent in batches of `batch_size` — even when a
+    preset resolved the universe.  This is critical on Render free tier: one
+    giant request for 500 tickers blocks the single worker, so every later
+    source times out while the server is still grinding through the first.
+    Batching keeps each HTTP request short and lets the server finish one batch
+    before the next arrives.  FRED has no per-ticker calls so it stays a single
+    request.
     """
-    # If a preset is used (no explicit tickers on CLI), pass it to the server
-    # directly so it handles the full universe internally.
-    use_preset = preset is not None
-    preset_payload = {"preset": preset} if use_preset else {}
-
     async with httpx.AsyncClient(base_url=base_url) as client:
         # 1. FMP prices – daily OHLCV price history (replaces yfinance; works from any IP)
         if only is None or "fmp_prices" in only:
             print("Ingesting FMP price history (OHLCV)...")
-            if use_preset:
-                await run_ingest(
-                    client, "fmp_prices", "/ingest/fmp_prices",
-                    {**preset_payload, "period": period},
-                    required_env="FMP_API_KEY",
-                )
-            else:
-                await run_ingest_batched(
-                    client, "fmp_prices", "/ingest/fmp_prices",
-                    tickers, {"period": period},
-                    batch_size=batch_size,
-                    required_env="FMP_API_KEY",
-                )
+            await run_ingest_batched(
+                client, "fmp_prices", "/ingest/fmp_prices",
+                tickers, {"period": period},
+                batch_size=batch_size,
+                required_env="FMP_API_KEY",
+            )
 
         # 2. FMP – fundamentals for Greenblatt and screens
         if only is None or "fmp" in only:
             print("Ingesting FMP (fundamentals)...")
-            if use_preset:
-                await run_ingest(
-                    client, "fmp", "/ingest/fmp",
-                    preset_payload,
-                    required_env="FMP_API_KEY",
-                )
-            else:
-                await run_ingest_batched(
-                    client, "fmp", "/ingest/fmp",
-                    tickers, {},
-                    batch_size=batch_size,
-                    required_env="FMP_API_KEY",
-                )
+            await run_ingest_batched(
+                client, "fmp", "/ingest/fmp",
+                tickers, {},
+                batch_size=batch_size,
+                required_env="FMP_API_KEY",
+            )
 
         # 3. FRED – macro indicators (no per-ticker calls)
         if only is None or "fred" in only:
@@ -231,34 +232,21 @@ async def run_all(
         # 4. Finnhub – news and analyst recommendations
         if only is None or "finnhub" in only:
             print("Ingesting Finnhub (news, recommendations)...")
-            if use_preset:
-                await run_ingest(
-                    client, "finnhub", "/ingest/finnhub",
-                    {**preset_payload, "include_news": True, "include_recommendations": True},
-                    required_env="FINNHUB_API_KEY",
-                )
-            else:
-                await run_ingest_batched(
-                    client, "finnhub", "/ingest/finnhub",
-                    tickers, {"include_news": True, "include_recommendations": True},
-                    batch_size=batch_size,
-                    required_env="FINNHUB_API_KEY",
-                )
+            await run_ingest_batched(
+                client, "finnhub", "/ingest/finnhub",
+                tickers, {"include_news": True, "include_recommendations": True},
+                batch_size=batch_size,
+                required_env="FINNHUB_API_KEY",
+            )
 
         # 5. SEC EDGAR – insiders and 13F (free)
         if only is None or "sec_edgar" in only:
             print("Ingesting SEC EDGAR (insiders, 13F)...")
-            if use_preset:
-                await run_ingest(
-                    client, "sec_edgar", "/ingest/sec_edgar",
-                    {**preset_payload, "include_13f": True, "include_insiders": True},
-                )
-            else:
-                await run_ingest_batched(
-                    client, "sec_edgar", "/ingest/sec_edgar",
-                    tickers, {"include_13f": True, "include_insiders": True},
-                    batch_size=batch_size,
-                )
+            await run_ingest_batched(
+                client, "sec_edgar", "/ingest/sec_edgar",
+                tickers, {"include_13f": True, "include_insiders": True},
+                batch_size=batch_size,
+            )
 
     print("Ingestion run finished.")
 
