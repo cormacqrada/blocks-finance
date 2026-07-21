@@ -2767,6 +2767,7 @@ async def _fetch_fmp_fundamentals(
                         "pb_ratio": _safe_float(ratios.get("priceToBookRatio") or key_metrics.get("pbRatio")),
                         "ps_ratio": _safe_float(ratios.get("priceToSalesRatio") or key_metrics.get("priceToSalesRatio")),
                         "ev_to_ebitda": (enterprise_value / ebitda) if ebitda > 0 else 0.0,
+                        "ev_to_fcf": (enterprise_value / free_cash_flow) if free_cash_flow > 0 else None,
                         "dividend_yield": _safe_float(ratios.get("dividendYield") or key_metrics.get("dividendYield")) * 100,
                         "payout_ratio": _safe_float(ratios.get("payoutRatio") or key_metrics.get("payoutRatio")) * 100,
                         "eps": eps,
@@ -2862,6 +2863,7 @@ async def ingest_from_yfinance(payload: Optional[dict] = None) -> dict:
     price_count = 0
     earnings_count = 0
     securities_count = 0
+    errors: list[dict] = []
     
     for ticker in tickers:
         try:
@@ -2898,6 +2900,9 @@ async def ingest_from_yfinance(payload: Optional[dict] = None) -> dict:
                         "fetched_at": datetime.now(),
                     }, ["ticker", "date"])
                     price_count += 1
+            else:
+                errors.append({"ticker": ticker, "stage": "history",
+                               "error": "empty price history (yfinance may be blocked from this network)"})
             
             # Get earnings history
             if include_earnings:
@@ -2919,11 +2924,14 @@ async def ingest_from_yfinance(payload: Optional[dict] = None) -> dict:
                                 "fetched_at": datetime.now(),
                             }, ["ticker", "date", "period"])
                             earnings_count += 1
-                except Exception:
-                    pass  # Earnings not available for all stocks
+                except Exception as ee:
+                    errors.append({"ticker": ticker, "stage": "earnings",
+                                   "error": f"{type(ee).__name__}: {ee}"})
                     
         except Exception as e:
             print(f"Warning: Failed to fetch {ticker}: {e}")
+            errors.append({"ticker": ticker, "stage": "ticker",
+                           "error": f"{type(e).__name__}: {e}"})
             continue
     
     return {
@@ -2931,6 +2939,7 @@ async def ingest_from_yfinance(payload: Optional[dict] = None) -> dict:
         "price_records": price_count,
         "earnings_records": earnings_count,
         "securities_updated": securities_count,
+        "errors": errors,
     }
 
 

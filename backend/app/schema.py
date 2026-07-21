@@ -195,6 +195,7 @@ _TABLE_DDL: list[str] = [
         pb_ratio DOUBLE,
         ps_ratio DOUBLE,
         ev_to_ebitda DOUBLE,
+        ev_to_fcf DOUBLE,
 
         dividend_yield DOUBLE,
         payout_ratio DOUBLE,
@@ -396,11 +397,37 @@ for _ddl in _TABLE_DDL:
 ALL_TABLES: tuple[str, ...] = tuple(_TABLE_NAMES)
 
 
+# Columns added to existing tables after their initial creation. CREATE TABLE
+# IF NOT EXISTS is a no-op on an existing table, so new columns must be added
+# via ALTER TABLE. Each entry is (table, column, duckdb_type). Safe to re-run
+# thanks to IF NOT EXISTS; wrapped in try/except at call site so a failure on
+# one column (e.g. DuckLake metadata quirk) never blocks boot.
+_COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("fundamentals", "ev_to_fcf", "DOUBLE"),
+]
+
+
+def _migrate_columns(conn: duckdb.DuckDBPyConnection) -> None:
+    """Add columns introduced after a table was first created (idempotent)."""
+    for table, column, dtype in _COLUMN_MIGRATIONS:
+        try:
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {dtype}"
+            )
+        except Exception as e:
+            print(
+                f"[schema] ALTER {table} ADD {column} skipped: "
+                f"{type(e).__name__}: {e}"
+            )
+
+
 def create_all_tables(conn: duckdb.DuckDBPyConnection) -> None:
-    """Create every table if it does not already exist. Idempotent.
+    """Create every table if it does not already exist, then migrate columns.
 
     On DuckLake this creates lake tables (no constraints). On a local DuckDB
-    file this creates plain tables. Existing tables are left untouched.
+    file this creates plain tables. Existing tables are left untouched by
+    CREATE, then _migrate_columns adds any new columns via ALTER TABLE.
     """
     for ddl in _TABLE_DDL:
         conn.execute(ddl)
+    _migrate_columns(conn)
