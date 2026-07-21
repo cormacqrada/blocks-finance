@@ -1,10 +1,158 @@
 /**
  * API client for blocks-finance backend MCP endpoints.
+ *
+ * Resilience: every GET-style call (the query endpoints below) goes through
+ * cachedFetch, which implements stale-while-revalidate backed by sessionStorage:
+ *   - On refresh, the last successful response is returned INSTANTLY from cache,
+ *     so panels render with data instead of spinners while the refetch runs.
+ *   - Only the very first load (no cache) waits on the network and may show a
+ *     spinner.
+ *   - Each request has a 12s timeout and one retry, so a transient backend
+ *     slow-down (Render cold start, ingestion in flight) falls back to stale
+ *     cache instead of hanging the UI.
+ * POST mutations (createFormula, saveScreen, compute*) bypass the cache.
  */
 
 // Use environment variable for production, fallback to localhost for dev
 export const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const API_BASE_URL = API_BASE;
+
+// ─── Stale-while-revalidate cache layer ─────────────────────────────────────
+
+const CACHE_PREFIX = "bfin-cache:";
+const REQUEST_TIMEOUT_MS = 12000;
+// In-flight fetches deduplicated by cache key so N panels requesting the same
+// endpoint share one network round-trip.
+const _inflight: Map<string, Promise<any>> = new Map();
+
+interface CacheEntry {
+  ts: number;
+  data: any;
+}
+
+function _cacheGet(key: string): CacheEntry | null {
+  try {
+    const raw = sessionStorage.getItem(CACHE_PREFIX + key);
+    if (!raw) return null;
+    return JSON.parse(raw) as CacheEntry;
+  } catch {
+    return null;
+  }
+}
+
+function _cacheSet(key: string, data: any): void {
+  try {
+    sessionStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ ts: Date.now(), data }));
+  } catch {
+    // sessionStorage full or unavailable — degrade gracefully, no caching.
+  }
+}
+
+/**
+ * Fetch with a timeout via AbortController. Returns parsed JSON.
+ * Throws on non-2xx or network/timeout error.
+ */
+async function _fetchWithTimeout(url: string, init: RequestInit = {}): Promise<any> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, { ...init, signal: ctrl.signal });
+    if (!resp.ok) {
+      // Try to surface the backend's error detail for non-GETs.
+      const body = await resp.text().catch(() => "");
+      throw new Error(`HTTP ${resp.status} ${body.slice(0, 120)}`);
+    }
+    return await resp.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Stale-while-revalidate fetch for read endpoints.
+ *
+ * 1. If a cached entry exists, resolve with it immediately AND kick off a
+ *    background refetch that updates the cache (and resolves the returned
+ *    promise a second time only if you await the refetch handle).
+ * 2. If no cache, perform the network fetch (deduped across concurrent
+ *    callers), cache the result, and resolve.
+ * 3. On network failure, fall back to stale cache if available; only throw if
+ *    there is no cache at all.
+ *
+ * Returns { data, fromCache } so callers can optionally show a "refreshing"
+ * badge when fromCache is true.
+ */
+export interface CachedResult<T> {
+  data: T;
+  fromCache: boolean;
+}
+
+export async function cachedFetch<T = any>(
+  url: string,
+  init?: RequestInit,
+  opts?: { method?: "GET" | "POST"; body?: any },
+): Promise<CachedResult<T>> {
+  const method = (opts?.method || (init?.method as string) || "GET").toUpperCase();
+  const body = opts?.body ?? (init?.body ? JSON.parse(init.body as string) : undefined);
+  const cacheKey = `${method}:${url}:${body ? JSON.stringify(body) : ""}`;
+
+  const cached = _cacheGet(cacheKey);
+
+  const networkFetch = async (): Promise<T> => {
+    // Dedupe concurrent identical requests.
+    const existing = _inflight.get(cacheKey);
+    if (existing) return existing as Promise<T>;
+    const p = (async () => {
+      const reqInit: RequestInit = init || {};
+      if (method === "POST") {
+        reqInit.method = "POST";
+        reqInit.headers = { "Content-Type": "application/json", ...(reqInit.headers as any) };
+        reqInit.body = body !== undefined ? JSON.stringify(body) : reqInit.body;
+      }
+      // One retry on transient failure before giving up.
+      try {
+        const data = await _fetchWithTimeout(url, reqInit);
+        _cacheSet(cacheKey, data);
+        return data as T;
+      } catch (err) {
+        // Retry once (handles cold-start hiccup / momentary blip).
+        const data = await _fetchWithTimeout(url, reqInit);
+        _cacheSet(cacheKey, data);
+        return data as T;
+      }
+    })();
+    _inflight.set(cacheKey, p);
+    try {
+      return await p;
+    } finally {
+      _inflight.delete(cacheKey);
+    }
+  };
+
+  if (cached) {
+    // Revalidate in the background; swallow errors (stale data is still shown).
+    networkFetch().catch(() => { /* keep stale cache on failure */ });
+    return { data: cached.data as T, fromCache: true };
+  }
+
+  // No cache: must wait for the network. On failure, there's nothing to show.
+  const data = await networkFetch();
+  return { data, fromCache: false };
+}
+
+/** Clear all cached responses (e.g. after a manual data refresh). */
+export function clearApiCache(): void {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith(CACHE_PREFIX)) keys.push(k);
+    }
+    keys.forEach((k) => sessionStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+}
 
 export interface Formula {
   id: string;
@@ -77,14 +225,16 @@ export const FIELD_CATEGORIES = {
 } as const;
 
 // API Functions
+// Query (read) functions use cachedFetch for stale-while-revalidate so a page
+// refresh renders the last-good data instantly instead of showing spinners.
+// Mutation functions (create/save/compute) stay uncached.
 
 export async function fetchFormulas(category?: string): Promise<{ formulas: Formula[]; fields: string[] }> {
   const url = category
     ? `${API_BASE_URL}/mcp/formula.list?category=${encodeURIComponent(category)}`
     : `${API_BASE_URL}/mcp/formula.list`;
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(url);
+  return data;
 }
 
 export async function createFormula(formula: Partial<Formula>): Promise<Formula> {
@@ -101,13 +251,12 @@ export async function createFormula(formula: Partial<Formula>): Promise<Formula>
 }
 
 export async function validateFormula(expression: string): Promise<FormulaValidation> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/formula.validate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ expression }),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/formula.validate`,
+    undefined,
+    { method: "POST", body: { expression } },
+  );
+  return data;
 }
 
 export async function evaluateFormula(params: {
@@ -116,13 +265,12 @@ export async function evaluateFormula(params: {
   universe?: string[];
   as_of?: string;
 }): Promise<{ results: Array<{ ticker: string; as_of: string; value: number | null; error?: string }> }> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/formula.evaluate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/formula.evaluate`,
+    undefined,
+    { method: "POST", body: params },
+  );
+  return data;
 }
 
 export async function runScreen(params: {
@@ -133,22 +281,20 @@ export async function runScreen(params: {
   formulas?: string[];
   limit?: number;
 }): Promise<ScreenResult> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/screen.run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/screen.run`,
+    undefined,
+    { method: "POST", body: params },
+  );
+  return data;
 }
 
 // Alias for torque components
 export const fetchScreenData = runScreen;
 
 export async function fetchScreens(): Promise<{ screens: ScreenDefinition[] }> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/screen.list`);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(`${API_BASE_URL}/mcp/screen.list`);
+  return data;
 }
 
 export async function saveScreen(screen: Partial<ScreenDefinition>): Promise<{ id: string; name: string }> {
@@ -165,25 +311,24 @@ export async function fetchGreenblattScores(params?: {
   universe?: string[];
   limit?: number;
 }): Promise<{ rows: GreenblattScore[] }> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/finance.query_greenblatt_scores`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params || {}),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/finance.query_greenblatt_scores`,
+    undefined,
+    { method: "POST", body: params || {} },
+  );
+  return data;
 }
 
 export async function fetchFundamentalsFields(): Promise<{
   fields: string[];
   categories: Record<string, string[]>;
 }> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/fundamentals.fields`);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(`${API_BASE_URL}/mcp/fundamentals.fields`);
+  return data;
 }
 
 export async function computeAllFormulas(universe?: string[]): Promise<{ computed_count: number }> {
+  // Mutation: triggers a backend recompute, not a cached read.
   const resp = await fetch(`${API_BASE_URL}/mcp/formula.compute_all`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -209,16 +354,16 @@ export async function fetchValueCompressionScores(params?: {
   min_compression?: number;
   limit?: number;
 }): Promise<{ rows: ValueCompressionScore[] }> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/finance.query_value_compression`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params || {}),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/finance.query_value_compression`,
+    undefined,
+    { method: "POST", body: params || {} },
+  );
+  return data;
 }
 
 export async function computeValueCompressionScores(universe?: string[]): Promise<{ computed_count: number }> {
+  // Mutation: triggers a backend recompute.
   const resp = await fetch(`${API_BASE_URL}/mcp/finance.compute_value_compression`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -280,6 +425,7 @@ export interface IRRSimulation {
 }
 
 export async function computeVRR(universe?: string[]): Promise<{ computed_count: number }> {
+  // Mutation: triggers a backend recompute.
   const resp = await fetch(`${API_BASE_URL}/mcp/finance.compute_vrr`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -295,25 +441,23 @@ export async function fetchVRRPositions(params?: {
   action?: string;
   limit?: number;
 }): Promise<{ rows: VRRPosition[] }> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/finance.query_vrr`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params || {}),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/finance.query_vrr`,
+    undefined,
+    { method: "POST", body: params || {} },
+  );
+  return data;
 }
 
 export async function fetchVRRSummary(params?: {
   universe?: string[];
 }): Promise<VRRSummary> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/finance.query_vrr_summary`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params || {}),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/finance.query_vrr_summary`,
+    undefined,
+    { method: "POST", body: params || {} },
+  );
+  return data;
 }
 
 export async function simulateMarginalIRR(params: {
@@ -323,13 +467,12 @@ export async function simulateMarginalIRR(params: {
   edge_estimate?: number;
   capital_steps?: number;
 }): Promise<IRRSimulation> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/finance.simulate_marginal_irr`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/finance.simulate_marginal_irr`,
+    undefined,
+    { method: "POST", body: params },
+  );
+  return data;
 }
 
 // ============================================================================
@@ -386,6 +529,7 @@ export interface BVPSTrail {
 }
 
 export async function computeCompoundingDiscount(universe?: string[]): Promise<{ computed_count: number }> {
+  // Mutation: triggers a backend recompute.
   const resp = await fetch(`${API_BASE_URL}/mcp/finance.compute_compounding_discount`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -402,25 +546,23 @@ export async function fetchCompoundingDiscountPositions(params?: {
   max_pb?: number;
   limit?: number;
 }): Promise<{ rows: CompoundingDiscountPosition[] }> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/finance.query_compounding_discount`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params || {}),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/finance.query_compounding_discount`,
+    undefined,
+    { method: "POST", body: params || {} },
+  );
+  return data;
 }
 
 export async function fetchCompoundingDiscountSummary(params?: {
   universe?: string[];
 }): Promise<CompoundingDiscountSummary> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/finance.query_compounding_discount_summary`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params || {}),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/finance.query_compounding_discount_summary`,
+    undefined,
+    { method: "POST", body: params || {} },
+  );
+  return data;
 }
 
 // ============================================================================
@@ -434,17 +576,78 @@ export interface PricePoint {
 
 /**
  * Fetch price history for a ticker.
- * Uses price_history table (populated by /ingest/yfinance) if available;
- * falls back to quarterly snapshots from fundamentals.
+ * Uses price_history table (populated by /ingest/fmp_prices or yfinance) if
+ * available; falls back to quarterly snapshots from fundamentals.
  * Response: { ticker, data: [{date, close}], count, source }
  */
 export async function fetchPriceHistory(ticker: string): Promise<PricePoint[]> {
-  const resp = await fetch(
-    `${API_BASE_URL}/api/price_history/${encodeURIComponent(ticker.toUpperCase())}?period=5y`
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/api/price_history/${encodeURIComponent(ticker.toUpperCase())}?period=5y`,
   );
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const json = await resp.json();
+  const json = data as { data?: any[] };
   return (json.data || []).filter((p: any) => p.date && p.close != null) as PricePoint[];
+}
+
+// ============================================================================
+// Alternative-data + per-ticker history endpoints (cached reads)
+// These back the whale / macro / insider / news panels and the per-ticker
+// history charts. Routing them through cachedFetch means a dashboard
+// re-render (e.g. adding a panel, which destroys + recreates every panel)
+// paints the last-good data instantly from sessionStorage instead of
+// flashing a spinner while the network refetch runs in the background.
+// ============================================================================
+
+export async function fetchWhaleActivity(limit = 30): Promise<any> {
+  const { data } = await cachedFetch(`${API_BASE_URL}/api/whale_activity?limit=${limit}`);
+  return data;
+}
+
+export async function fetchMacroOverview(): Promise<any> {
+  const { data } = await cachedFetch(`${API_BASE_URL}/api/macro_overview`);
+  return data;
+}
+
+export async function fetchMacroSeries(series: string, period = "2y"): Promise<any> {
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/api/macro/${encodeURIComponent(series)}?period=${period}`,
+  );
+  return data;
+}
+
+export async function fetchInsiderTransactions(ticker: string, limit = 20): Promise<any> {
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/api/insider_transactions/${encodeURIComponent(ticker.toUpperCase())}?limit=${limit}`,
+  );
+  return data;
+}
+
+export async function fetchCompanyNews(ticker: string, limit = 15): Promise<any> {
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/api/company_news/${encodeURIComponent(ticker.toUpperCase())}?limit=${limit}`,
+  );
+  return data;
+}
+
+export async function fetchAnalystRecommendations(ticker: string): Promise<any> {
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/api/analyst_recommendations/${encodeURIComponent(ticker.toUpperCase())}`,
+  );
+  return data;
+}
+
+export async function fetchWhaleHoldings(ticker: string): Promise<any> {
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/api/whale_holdings/${encodeURIComponent(ticker.toUpperCase())}`,
+  );
+  return data;
+}
+
+export async function fetchEarningsHistory(ticker: string): Promise<any[]> {
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/api/earnings_history/${encodeURIComponent(ticker.toUpperCase())}`,
+  );
+  const json = data as { data?: any[] };
+  return json.data || [];
 }
 
 export async function simulateBVPSTrail(params: {
@@ -452,11 +655,10 @@ export async function simulateBVPSTrail(params: {
   years?: number;
   steps?: number;
 }): Promise<BVPSTrail> {
-  const resp = await fetch(`${API_BASE_URL}/mcp/finance.simulate_bvps_trail`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const { data } = await cachedFetch(
+    `${API_BASE_URL}/mcp/finance.simulate_bvps_trail`,
+    undefined,
+    { method: "POST", body: params },
+  );
+  return data;
 }

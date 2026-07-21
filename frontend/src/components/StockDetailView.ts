@@ -5,7 +5,7 @@
  * Lazy-loaded for FCP optimization.
  */
 
-import { fetchScreenData, API_BASE } from "../api/client";
+import { fetchScreenData, fetchAnalystRecommendations, fetchWhaleHoldings } from "../api/client";
 import { METRIC_DEFINITIONS, formatMetricName } from "../utils/metricTooltips";
 import "./InsiderActivityPanel";
 import "./CompanyNewsPanel";
@@ -106,8 +106,8 @@ export class StockDetailView extends HTMLElement {
           ],
           limit: 1,
         }),
-        fetch(`${API_BASE}/api/analyst_recommendations/${this.ticker}`).then(r => r.ok ? r.json() : { recommendations: [] }),
-        fetch(`${API_BASE}/api/whale_holdings/${this.ticker}`).then(r => r.ok ? r.json() : { holders: [] }),
+        fetchAnalystRecommendations(this.ticker).catch(() => ({ recommendations: [] })),
+        fetchWhaleHoldings(this.ticker).catch(() => ({ holders: [] })),
       ]);
 
       if (screenResult.rows.length > 0) {

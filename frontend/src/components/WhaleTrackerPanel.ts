@@ -9,7 +9,7 @@
  * Data is quarterly (SEC 13F filing requirement)
  */
 
-const API_BASE = (window as any).VITE_API_URL || "http://localhost:8000";
+import { fetchWhaleActivity } from "../api/client";
 
 interface WhalePosition {
   ticker: string;
@@ -44,10 +44,7 @@ export class WhaleTrackerPanel extends HTMLElement {
     this.render();
 
     try {
-      const resp = await fetch(`${API_BASE}/api/whale_activity?limit=30`);
-      if (resp.ok) {
-        this.data = await resp.json();
-      }
+      this.data = await fetchWhaleActivity(30);
     } catch (e) {
       console.error("Failed to load whale activity:", e);
     }

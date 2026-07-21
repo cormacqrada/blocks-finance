@@ -9,7 +9,7 @@
  * 3. Margin Stability Band - Narrow margin range over years
  */
 
-import { fetchScreenData } from "../../api/client";
+import { fetchScreenData, fetchPriceHistory, fetchEarningsHistory } from "../../api/client";
 import Chart from "chart.js/auto";
 import {
   SHARED_STYLES,
@@ -18,8 +18,6 @@ import {
   generateArchetypeInsights,
   setupTickerLinks,
 } from "./shared";
-
-const API_BASE = (window as any).VITE_API_URL || "http://localhost:8000";
 
 interface CompoundersData {
   fundamentals: any[];
@@ -75,11 +73,11 @@ export class CompoundersView extends HTMLElement {
       for (const ticker of topTickers) {
         try {
           const [earnings, prices] = await Promise.all([
-            fetch(`${API_BASE}/api/earnings_history/${ticker}`).then(r => r.json()),
-            fetch(`${API_BASE}/api/price_history/${ticker}?period=5y`).then(r => r.json()),
+            fetchEarningsHistory(ticker),
+            fetchPriceHistory(ticker),
           ]);
-          if (earnings.data) earningsHistory.set(ticker, earnings.data);
-          if (prices.data) priceHistory.set(ticker, prices.data);
+          if (earnings.length) earningsHistory.set(ticker, earnings);
+          if (prices.length) priceHistory.set(ticker, prices);
         } catch (e) {
           // Continue without historical data
         }

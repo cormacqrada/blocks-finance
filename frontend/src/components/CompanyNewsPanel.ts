@@ -7,7 +7,7 @@
  * - Links to full articles
  */
 
-const API_BASE = (window as any).VITE_API_URL || "http://localhost:8000";
+import { fetchCompanyNews } from "../api/client";
 
 interface NewsItem {
   datetime: string;
@@ -48,11 +48,8 @@ export class CompanyNewsPanel extends HTMLElement {
     this.render();
 
     try {
-      const resp = await fetch(`${API_BASE}/api/company_news/${this.ticker}?limit=15`);
-      if (resp.ok) {
-        const result = await resp.json();
-        this.data = result.data || [];
-      }
+      const result = await fetchCompanyNews(this.ticker, 15);
+      this.data = (result && result.data) || [];
     } catch (e) {
       console.error("Failed to load company news:", e);
     }

@@ -10,8 +10,7 @@
  */
 
 import Chart from "chart.js/auto";
-
-const API_BASE = (window as any).VITE_API_URL || "http://localhost:8000";
+import { fetchMacroOverview, fetchMacroSeries } from "../api/client";
 
 interface MacroIndicator {
   date: string;
@@ -53,10 +52,7 @@ export class MacroOverviewPanel extends HTMLElement {
     this.render();
 
     try {
-      const resp = await fetch(`${API_BASE}/api/macro_overview`);
-      if (resp.ok) {
-        this.data = await resp.json();
-      }
+      this.data = await fetchMacroOverview();
     } catch (e) {
       console.error("Failed to load macro data:", e);
     }
@@ -70,12 +66,9 @@ export class MacroOverviewPanel extends HTMLElement {
     const canvas = this.querySelector("#yield-curve-chart") as HTMLCanvasElement;
     if (!canvas) return;
 
-    // Fetch yield curve history
+    // Fetch yield curve history (cached: re-renders paint last-good series instantly)
     try {
-      const resp = await fetch(`${API_BASE}/api/macro/T10Y2Y?period=2y`);
-      if (!resp.ok) return;
-      
-      const data = await resp.json();
+      const data = await fetchMacroSeries("T10Y2Y", "2y");
       if (!data.data || data.data.length === 0) return;
 
       this.yieldCurveChart?.destroy();

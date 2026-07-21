@@ -9,7 +9,7 @@
  * Can filter by specific ticker or show all activity
  */
 
-const API_BASE = (window as any).VITE_API_URL || "http://localhost:8000";
+import { fetchInsiderTransactions } from "../api/client";
 
 interface InsiderTransaction {
   filing_date: string;
@@ -53,11 +53,8 @@ export class InsiderActivityPanel extends HTMLElement {
     this.render();
 
     try {
-      const resp = await fetch(`${API_BASE}/api/insider_transactions/${this.ticker}?limit=20`);
-      if (resp.ok) {
-        const result = await resp.json();
-        this.data = result.data || [];
-      }
+      const result = await fetchInsiderTransactions(this.ticker, 20);
+      this.data = (result && result.data) || [];
     } catch (e) {
       console.error("Failed to load insider activity:", e);
     }
