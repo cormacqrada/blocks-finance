@@ -143,7 +143,14 @@ def get_connection() -> duckdb.DuckDBPyConnection:
             with _lake_lock:
                 if _lake_db is None:  # double-checked locking
                     _lake_db = _build_ducklake()
-        return _lake_db.cursor()
+        # NOTE: a fresh cursor does NOT inherit the parent connection's `USE lake`
+        # default-database setting — unqualified table names (e.g. `FROM greenblatt_scores`)
+        # would resolve against the empty in-memory `main` schema and raise
+        # CatalogException. Re-establishing the default schema on each cursor fixes
+        # every existing unqualified query without having to qualify ~60 call sites.
+        cur = _lake_db.cursor()
+        cur.execute("USE lake")
+        return cur
     return _get_local_connection()
 
 
