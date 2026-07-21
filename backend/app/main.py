@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from datetime import datetime
@@ -2949,6 +2950,100 @@ async def ingest_from_yfinance(payload: Optional[dict] = None) -> dict:
         "price_records": price_count,
         "earnings_records": earnings_count,
         "securities_updated": securities_count,
+        "errors": errors,
+    }
+
+
+# ============================================================================
+# FMP Price History Ingestion (replaces yfinance — works from any IP)
+# ============================================================================
+
+
+# Map yfinance-style period tokens to a lookback in days for FMP's from/to.
+_PERIOD_DAYS: dict[str, int] = {
+    "1mo": 30, "3mo": 90, "6mo": 180, "1y": 365,
+    "2y": 730, "5y": 1825, "10y": 3650, "max": 36500,
+}
+
+
+@app.post("/ingest/fmp_prices")
+async def ingest_fmp_prices(payload: Optional[dict] = None) -> dict:
+    """Ingest daily OHLCV price history from FMP (replaces yfinance).
+
+    FMP's historical-price-full endpoint is API-key authenticated and works
+    from datacenter IPs (Render), unlike yfinance which Yahoo rate-limits.
+
+    Input: {
+        "api_key": "...",        # optional, falls back to FMP_API_KEY env
+        "tickers": ["AAPL", ...], # optional, defaults to curated universe
+        "preset": "sp500",       # optional, resolved server-side
+        "period": "2y"           # optional: 1mo/3mo/6mo/1y/2y/5y/10y/max
+    }
+    """
+    from datetime import timedelta
+
+    payload = payload or {}
+    api_key = payload.get("api_key") or os.getenv("FMP_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No API key provided. Pass 'api_key' in request body or set FMP_API_KEY environment variable."
+        )
+
+    tickers = _tickers_from_payload(payload)
+    period = payload.get("period", "2y")
+    days = _PERIOD_DAYS.get(period, 730)
+    today = datetime.now()
+    from_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+
+    conn = get_connection()
+    price_count = 0
+    errors: list[dict] = []
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for ticker in tickers:
+            try:
+                url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}"
+                resp = await client.get(
+                    url,
+                    params={"apikey": api_key, "from": from_date, "to": to_date},
+                )
+                resp.raise_for_status()
+                body = resp.json() or {}
+                bars = body.get("historical") or []
+                if not bars:
+                    errors.append({"ticker": ticker,
+                                   "error": "no price bars returned"})
+                    continue
+                for bar in bars:
+                    d = bar.get("date")
+                    if not d:
+                        continue
+                    upsert_row(conn, "price_history", {
+                        "ticker": ticker,
+                        "date": d,
+                        "open": _safe_float(bar.get("open")),
+                        "high": _safe_float(bar.get("high")),
+                        "low": _safe_float(bar.get("low")),
+                        "close": _safe_float(bar.get("close")),
+                        "adj_close": _safe_float(bar.get("adjClose") or bar.get("close")),
+                        "volume": int(_safe_float(bar.get("volume"), 0)),
+                        "data_source": "fmp",
+                        "fetched_at": today,
+                    }, ["ticker", "date"])
+                    price_count += 1
+            except Exception as e:
+                errors.append({"ticker": ticker,
+                               "error": f"{type(e).__name__}: {e}"})
+                continue
+            # Light pacing to respect FMP rate limits (starter ~250 req/min).
+            await asyncio.sleep(0.15)
+
+    return {
+        "tickers": tickers,
+        "period": period,
+        "price_records": price_count,
         "errors": errors,
     }
 

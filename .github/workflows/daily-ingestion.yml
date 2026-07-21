@@ -6,7 +6,8 @@ name: Daily Data Ingestion
 #
 # Equivalent to:  python -m app.run_ingestion --preset <preset> --period 2y
 # Same 5 sources, same order, same payloads:
-#   1. yfinance    (free — price history, earnings, securities)
+#   1. fmp_prices  (FMP daily OHLCV — skipped if no FMP_API_KEY; replaces
+#      yfinance which Yahoo rate-limits from datacenter IPs)
 #   2. FMP         (fundamentals — skipped if no FMP_API_KEY)
 #   3. FRED        (macro indicators — skipped if no FRED_API_KEY)
 #   4. Finnhub     (news + analyst recs — skipped if no FINNHUB_API_KEY)
@@ -70,12 +71,14 @@ jobs:
         run: |
           curl --fail --retry 10 --retry-delay 10 --retry-all-errors "$BACKEND_URL/health"
 
-      # ── 1. yfinance (free — daily price history + earnings) ──────────────────
-      - name: Ingest yfinance
+      # ── 1. FMP daily price history (skipped if no FMP_API_KEY secret) ─────────
+      # Replaces yfinance, which Yahoo rate-limits from datacenter IPs.
+      - name: Ingest FMP price history
+        if: env.HAS_FMP == 'true'
         run: |
-          curl --fail --max-time 600 -s -X POST "$BACKEND_URL/ingest/yfinance" \
+          curl --fail --max-time 600 -s -X POST "$BACKEND_URL/ingest/fmp_prices" \
             -H "Content-Type: application/json" \
-            -d "{\"preset\": \"$PRESET\", \"period\": \"$PERIOD\", \"include_earnings\": true}" \
+            -d "{\"preset\": \"$PRESET\", \"period\": \"$PERIOD\"}" \
             | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
 
       # ── 2. FMP fundamentals (skipped if no FMP_API_KEY secret) ───────────────

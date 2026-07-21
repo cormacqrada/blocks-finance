@@ -5,11 +5,13 @@ Run this script to populate/refresh the database for dashboard views. Uses the
 backend's ingest endpoints so the server must be running (or run as part of the app).
 
 Data sources (best for dashboard):
-- yfinance: price history, earnings, securities (free, no key)
+- fmp_prices: daily OHLCV price history from FMP (API key — works from any IP)
 - FMP: fundamentals for Greenblatt/screens (API key)
 - FRED: macro indicators (API key)
 - Finnhub: company news, analyst recommendations (API key)
 - SEC EDGAR: insider transactions, 13F whale holdings (free)
+- yfinance: optional local-only price/earnings (free, but Yahoo rate-limits
+  datacenter IPs — use --only yfinance from your laptop, not the server)
 
 Usage:
   # With backend running at default URL:
@@ -19,7 +21,7 @@ Usage:
   BLOCKS_FINANCE_BACKEND_URL=http://localhost:8000 python -m app.run_ingestion AAPL MSFT GOOGL
 
   # Only sources you have keys for (skip others with --only):
-  python -m app.run_ingestion --only yfinance,fred
+  python -m app.run_ingestion --only fmp_prices,fred
 """
 
 from __future__ import annotations
@@ -36,14 +38,15 @@ import httpx
 
 BACKEND_BASE_URL = os.getenv("BLOCKS_FINANCE_BACKEND_URL", "http://localhost:8000")
 
-# Per-source request timeouts (seconds).  yfinance loops over every ticker
-# server-side so needs the longest budget; FRED/Finnhub are fast.
+# Per-source request timeouts (seconds).  fmp_prices/yfinance loop over
+# every ticker server-side so need the longest budget; FRED/Finnhub are fast.
 TIMEOUTS: dict[str, float] = {
-    "yfinance":  600.0,
-    "fmp":       300.0,
-    "fred":      120.0,
-    "finnhub":   120.0,
-    "sec_edgar": 300.0,
+    "fmp_prices": 600.0,
+    "fmp":        300.0,
+    "yfinance":   600.0,
+    "fred":       120.0,
+    "finnhub":    120.0,
+    "sec_edgar":  300.0,
 }
 
 # Default batch size when splitting a large ticker list across multiple calls.
@@ -182,19 +185,21 @@ async def run_all(
     preset_payload = {"preset": preset} if use_preset else {}
 
     async with httpx.AsyncClient(base_url=base_url) as client:
-        # 1. Yahoo Finance – price history, earnings, securities (free)
-        if only is None or "yfinance" in only:
-            print("Ingesting yfinance (price history, earnings, securities)...")
+        # 1. FMP prices – daily OHLCV price history (replaces yfinance; works from any IP)
+        if only is None or "fmp_prices" in only:
+            print("Ingesting FMP price history (OHLCV)...")
             if use_preset:
                 await run_ingest(
-                    client, "yfinance", "/ingest/yfinance",
-                    {**preset_payload, "period": period, "include_earnings": True},
+                    client, "fmp_prices", "/ingest/fmp_prices",
+                    {**preset_payload, "period": period},
+                    required_env="FMP_API_KEY",
                 )
             else:
                 await run_ingest_batched(
-                    client, "yfinance", "/ingest/yfinance",
-                    tickers, {"period": period, "include_earnings": True},
+                    client, "fmp_prices", "/ingest/fmp_prices",
+                    tickers, {"period": period},
                     batch_size=batch_size,
+                    required_env="FMP_API_KEY",
                 )
 
         # 2. FMP – fundamentals for Greenblatt and screens
@@ -283,7 +288,7 @@ def main() -> int:
         "--only",
         type=lambda s: [x.strip() for x in s.split(",") if x.strip()],
         default=None,
-        help="Comma-separated sources: yfinance,fmp,fred,finnhub,sec_edgar",
+        help="Comma-separated sources: fmp_prices,fmp,fred,finnhub,sec_edgar,yfinance",
     )
     parser.add_argument(
         "--period",
@@ -324,7 +329,7 @@ def main() -> int:
 
     only = args.only
     if only:
-        valid = {"yfinance", "fmp", "fred", "finnhub", "sec_edgar"}
+        valid = {"fmp_prices", "fmp", "fred", "finnhub", "sec_edgar", "yfinance"}
         invalid = set(only) - valid
         if invalid:
             print(f"Unknown --only source(s): {invalid}", file=sys.stderr)
