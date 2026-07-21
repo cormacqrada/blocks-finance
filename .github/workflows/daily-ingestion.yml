@@ -13,7 +13,7 @@ name: Daily Data Ingestion
 #   5. SEC EDGAR   (free — 13F holdings + Form 4 insiders)
 #
 # Required GitHub secret:
-#   BACKEND_URL  →  https://blocks-finance.fly.dev  (no trailing slash)
+#   BACKEND_URL  →  https://blocks-finance.onrender.com  (no trailing slash)
 #
 # Optional GitHub secrets (keyed sources are skipped when these are absent):
 #   FMP_API_KEY      →  Financial Modeling Prep key
@@ -32,7 +32,7 @@ on:
         description: "Universe preset"
         type: choice
         options: ["default", "sp500"]
-        default: "default"
+        default: "sp500"
       period:
         description: "yfinance history period"
         type: choice
@@ -52,7 +52,7 @@ jobs:
       FMP_API_KEY:     ${{ secrets.FMP_API_KEY }}
       FRED_API_KEY:    ${{ secrets.FRED_API_KEY }}
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
-      PRESET:          ${{ github.event.inputs.preset || 'default' }}
+      PRESET:          ${{ github.event.inputs.preset || 'sp500' }}
       PERIOD:          ${{ github.event.inputs.period || '2y' }}
       HAS_FMP:         ${{ secrets.FMP_API_KEY != '' }}
       HAS_FRED:        ${{ secrets.FRED_API_KEY != '' }}

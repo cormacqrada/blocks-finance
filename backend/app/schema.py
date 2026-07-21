@@ -33,7 +33,7 @@ _TABLE_DDL: list[str] = [
         industry TEXT,
         exchange TEXT,
         country TEXT,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP
     )
     """,
     """
@@ -46,22 +46,22 @@ _TABLE_DDL: list[str] = [
         close DOUBLE,
         adj_close DOUBLE,
         volume BIGINT,
-        data_source TEXT DEFAULT 'yfinance',
-        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        data_source TEXT,
+        fetched_at TIMESTAMP
     )
     """,
     """
     CREATE TABLE IF NOT EXISTS earnings_history (
         ticker TEXT,
         date DATE,
-        period TEXT,  -- 'Q1', 'Q2', 'Q3', 'Q4', 'FY'
+        period TEXT,
         eps DOUBLE,
         eps_estimate DOUBLE,
         revenue DOUBLE,
         revenue_estimate DOUBLE,
         surprise_pct DOUBLE,
-        data_source TEXT DEFAULT 'yfinance',
-        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        data_source TEXT,
+        fetched_at TIMESTAMP
     )
     """,
     """
@@ -77,8 +77,8 @@ _TABLE_DDL: list[str] = [
         debt_to_equity DOUBLE,
         fcf DOUBLE,
         shares_outstanding DOUBLE,
-        data_source TEXT DEFAULT 'fmp',
-        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        data_source TEXT,
+        fetched_at TIMESTAMP
     )
     """,
     # ── SEC EDGAR ──────────────────────────────────────────────────────────────
@@ -94,8 +94,8 @@ _TABLE_DDL: list[str] = [
         pct_of_portfolio DOUBLE,
         change_shares BIGINT,
         change_pct DOUBLE,
-        data_source TEXT DEFAULT 'sec_edgar',
-        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        data_source TEXT,
+        fetched_at TIMESTAMP
     )
     """,
     """
@@ -105,13 +105,13 @@ _TABLE_DDL: list[str] = [
         trade_date DATE,
         insider_name TEXT,
         insider_title TEXT,
-        transaction_type TEXT,  -- 'P' = purchase, 'S' = sale, 'A' = grant
+        transaction_type TEXT,
         shares BIGINT,
         price DOUBLE,
         value DOUBLE,
         shares_owned_after BIGINT,
-        data_source TEXT DEFAULT 'sec_edgar',
-        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        data_source TEXT,
+        fetched_at TIMESTAMP
     )
     """,
     # ── Finnhub ────────────────────────────────────────────────────────────────
@@ -125,8 +125,8 @@ _TABLE_DDL: list[str] = [
         source TEXT,
         url TEXT,
         sentiment DOUBLE,
-        data_source TEXT DEFAULT 'finnhub',
-        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        data_source TEXT,
+        fetched_at TIMESTAMP
     )
     """,
     """
@@ -138,8 +138,8 @@ _TABLE_DDL: list[str] = [
         hold INTEGER,
         sell INTEGER,
         strong_sell INTEGER,
-        data_source TEXT DEFAULT 'finnhub',
-        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        data_source TEXT,
+        fetched_at TIMESTAMP
     )
     """,
     # ── FRED ───────────────────────────────────────────────────────────────────
@@ -150,8 +150,8 @@ _TABLE_DDL: list[str] = [
         value DOUBLE,
         series_name TEXT,
         units TEXT,
-        data_source TEXT DEFAULT 'fred',
-        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        data_source TEXT,
+        fetched_at TIMESTAMP
     )
     """,
     # ── Fundamentals (wide table) ──────────────────────────────────────────────
@@ -159,46 +159,46 @@ _TABLE_DDL: list[str] = [
     CREATE TABLE IF NOT EXISTS fundamentals (
         ticker TEXT,
         as_of DATE,
-        -- Company Info
+
         company_name TEXT,
         sector TEXT,
         industry TEXT,
-        -- Core Greenblatt
+
         ebit DOUBLE,
         enterprise_value DOUBLE,
         net_working_capital DOUBLE,
-        -- Revenue & Growth
+
         revenue DOUBLE,
         revenue_growth_yoy DOUBLE,
-        -- Margins
+
         gross_margin DOUBLE,
         operating_margin DOUBLE,
         net_margin DOUBLE,
-        -- Cash Flow
+
         free_cash_flow DOUBLE,
         fcf_yield DOUBLE,
-        -- Leverage
+
         total_debt DOUBLE,
         total_equity DOUBLE,
         debt_to_equity DOUBLE,
         interest_coverage DOUBLE,
-        -- Book Value
+
         book_value DOUBLE,
         tangible_book_value DOUBLE,
         book_value_per_share DOUBLE,
-        -- Market Data
+
         market_cap DOUBLE,
         price DOUBLE,
         shares_outstanding DOUBLE,
-        -- Valuation Ratios
+
         pe_ratio DOUBLE,
         pb_ratio DOUBLE,
         ps_ratio DOUBLE,
         ev_to_ebitda DOUBLE,
-        -- Dividends
+
         dividend_yield DOUBLE,
         payout_ratio DOUBLE,
-        -- Earnings
+
         eps DOUBLE,
         eps_growth_yoy DOUBLE
     )
@@ -220,10 +220,10 @@ _TABLE_DDL: list[str] = [
         expression TEXT NOT NULL,
         description TEXT,
         category TEXT,
-        output_format TEXT DEFAULT 'number',
-        created_by TEXT DEFAULT 'system',
-        is_system BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        output_format TEXT,
+        created_by TEXT,
+        is_system BOOLEAN,
+        created_at TIMESTAMP
     )
     """,
     """
@@ -233,7 +233,7 @@ _TABLE_DDL: list[str] = [
         metric_name TEXT,
         formula_id TEXT,
         value DOUBLE,
-        computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        computed_at TIMESTAMP
     )
     """,
     """
@@ -243,11 +243,11 @@ _TABLE_DDL: list[str] = [
         description TEXT,
         filters TEXT,
         rank_by TEXT,
-        rank_order TEXT DEFAULT 'DESC',
+        rank_order TEXT,
         columns TEXT,
-        created_by TEXT DEFAULT 'system',
-        is_system BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_by TEXT,
+        is_system BOOLEAN,
+        created_at TIMESTAMP
     )
     """,
     # ── Taxonomy & ETF overlay ─────────────────────────────────────────────────
@@ -257,16 +257,16 @@ _TABLE_DDL: list[str] = [
         macro_sector TEXT,
         industry_cluster TEXT,
         business_model_group TEXT,
-        themes TEXT,  -- JSON array of theme tags
-        override_source TEXT DEFAULT 'manual',  -- 'manual', 'vendor', 'auto'
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        themes TEXT,
+        override_source TEXT,
+        updated_at TIMESTAMP
     )
     """,
     """
     CREATE TABLE IF NOT EXISTS etf_ticker_mapping (
         ticker TEXT,
         etf_symbol TEXT,
-        etf_type TEXT,  -- 'sector' | 'thematic' | 'broad'
+        etf_type TEXT,
         weight_pct DOUBLE,
         as_of DATE
     )
@@ -328,7 +328,7 @@ _TABLE_DDL: list[str] = [
         cost_basis DOUBLE,
         sector TEXT,
         notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP
     )
     """,
     """
@@ -343,7 +343,7 @@ _TABLE_DDL: list[str] = [
         return_6mo DOUBLE,
         return_1yr DOUBLE,
         was_correct BOOLEAN,
-        computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        computed_at TIMESTAMP
     )
     """,
 ]

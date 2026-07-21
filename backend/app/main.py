@@ -2537,12 +2537,12 @@ async def api_price_history(ticker: str, period: str = "5y") -> dict:
 from app.universe import DEFAULT_TICKERS, get_universe as get_universe_tickers
 
 
-def _tickers_from_payload(payload: dict, *, default_preset: str = "default") -> List[str]:
+def _tickers_from_payload(payload: dict, *, default_preset: str = "sp500") -> List[str]:
     """Resolve ticker list from request: payload['tickers'] or universe preset."""
     tickers = payload.get("tickers")
     if tickers is not None:
         return [tickers] if isinstance(tickers, str) else list(tickers)
-    preset = (payload.get("preset") or default_preset).strip().lower() or "default"
+    preset = (payload.get("preset") or default_preset).strip().lower() or "sp500"
     return get_universe_tickers(preset, fallback_to_default=True)
 
 

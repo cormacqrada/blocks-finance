@@ -169,8 +169,8 @@ def main() -> int:
     parser.add_argument(
         "--preset",
         choices=["default", "sp500"],
-        default=None,
-        help="Use preset universe (default or sp500). Ignored if tickers given.",
+        default="sp500",
+        help="Use preset universe (sp500 or default). Ignored if tickers given.",
     )
     parser.add_argument(
         "--base-url",

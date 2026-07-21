@@ -85,11 +85,12 @@ def get_preset_universe(preset: str) -> List[str]:
 
 def get_universe(preset: str | None = None, fallback_to_default: bool = True) -> List[str]:
     """
-    Return tickers for the given preset. If preset is None or empty, returns default.
-    If the preset cache is empty and fallback_to_default is True, returns default.
+    Return tickers for the given preset. If preset is None or empty, defaults
+    to sp500 (the broad US large-cap market). If the sp500 cache is empty and
+    fallback_to_default is True, falls back to the curated DEFAULT_TICKERS list.
     """
-    tickers = get_preset_universe(preset or "default")
-    if not tickers and preset in ("sp500", "small_mid") and fallback_to_default:
+    tickers = get_preset_universe(preset or "sp500")
+    if not tickers and fallback_to_default:
         return list(DEFAULT_TICKERS)
     return tickers
 
