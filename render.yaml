@@ -42,12 +42,12 @@ services:
         sync: false
 
   # Frontend: static Vite build, served via Render's CDN. Free, no spin-down.
-  # VITE_API_URL is baked in at build time (Vite import.meta.env), so it must
-  # be set in Render's Environment tab for this service before the first build.
+  # Uses pnpm (the project has pnpm-lock.yaml, not package-lock.json).
+  # VITE_API_URL is baked in at build time (Vite import.meta.env).
   - type: static
     name: blocks-finance-frontend
     rootDir: frontend
-    buildCommand: npm install && npm run build
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm run build
     publishPath: dist
     autoDeploy: true
     envVars:
