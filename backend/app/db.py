@@ -115,8 +115,11 @@ def _build_ducklake() -> duckdb.DuckDBPyConnection:
     data_path = f"s3://{bucket}/lake/"
 
     # ATTACH creates the DuckLake if absent (create_if_not_exists defaults true).
+    # AUTOMATIC_MIGRATION lets newer ducklake extensions upgrade catalogs created
+    # by older builds (e.g. local 1.3.2 writes v0.2, Render 1.4.3 needs v1.0).
     db.execute(
-        f"ATTACH 'ducklake:postgres:{pg_url}' AS lake (DATA_PATH '{data_path}')"
+        f"ATTACH 'ducklake:postgres:{pg_url}' AS lake "
+        f"(DATA_PATH '{data_path}', AUTOMATIC_MIGRATION TRUE)"
     )
     db.execute("USE lake")
     # Bootstrap schema + seed reference data on the fresh lake.
