@@ -25,6 +25,7 @@ interface HeatmapCell {
 
 interface HeatmapRow {
   ticker: string;
+  companyName: string;
   cells: HeatmapCell[];
   avgPercentile: number;
 }
@@ -36,6 +37,7 @@ const METRICS = [
   { key: "fcf_yield", label: "FCF Yield", format: (v: number) => `${v.toFixed(1)}%` },
   { key: "revenue_growth_yoy", label: "Rev Growth", format: (v: number) => `${v.toFixed(1)}%` },
   { key: "pe_ratio", label: "P/E", format: (v: number) => `${v.toFixed(1)}x`, invert: true },
+  { key: "ev_to_fcf", label: "EV/FCF", format: (v: number) => v > 0 ? `${v.toFixed(1)}x` : "N/A", invert: true },
 ];
 
 export class TorqueHeatmap extends HTMLElement {
@@ -70,16 +72,24 @@ export class TorqueHeatmap extends HTMLElement {
 
   private async fetchData() {
     try {
+      // ev_to_fcf is a computed formula, not a fundamentals column;
+      // request it via the formulas param so the backend evaluates it.
+      const formulaIds = ["formula:ev_to_fcf"];
+
       const result = await fetchScreenData({
         filters: [],
-        columns: ["ticker", ...METRICS.map(m => m.key)],
-        formulas: [],
+        columns: ["ticker", "company_name", ...METRICS.filter(m => m.key !== "ev_to_fcf").map(m => m.key)],
+        formulas: formulaIds,
         rank_by: "eps_growth_yoy",
         rank_order: "DESC",
         limit: this.config.limit || 30,
       });
 
-      const rows = result.rows;
+      // Map the formula result column name back to our metric key
+      const rows = result.rows.map((row: any) => ({
+        ...row,
+        ev_to_fcf: row["EV/FCF Ratio"] ?? row.ev_to_fcf ?? 0,
+      }));
       
       // Calculate percentiles for each metric
       const percentilesByMetric: number[][] = METRICS.map((metric, mIdx) => {
@@ -110,6 +120,7 @@ export class TorqueHeatmap extends HTMLElement {
 
         return {
           ticker: row.ticker,
+          companyName: row.company_name || "",
           cells,
           avgPercentile,
         };
@@ -141,7 +152,7 @@ export class TorqueHeatmap extends HTMLElement {
     container.innerHTML = this.data.map((row, idx) => `
       <div class="heatmap-row ${row.avgPercentile >= 70 ? 'highlight-row' : ''}">
         <div class="row-rank">${idx + 1}</div>
-        <div class="row-ticker"><span class="ticker-link" data-ticker="${row.ticker}">${row.ticker}</span></div>
+        <div class="row-ticker"><span class="ticker-link" data-ticker="${row.ticker}" title="${row.companyName}">${row.ticker}${row.companyName ? `<span style=\"color:#64748b;font-size:0.65rem;margin-left:4px\">${row.companyName.length > 15 ? row.companyName.slice(0,15) + '…' : row.companyName}</span>` : ""}</span></div>
         ${row.cells.map(cell => `
           <div class="heatmap-cell" style="background: ${this.getCellColor(cell.percentile)}">
             <span class="cell-value">${cell.formatted}</span>

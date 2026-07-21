@@ -11,6 +11,7 @@
 // Metric definitions with explanations
 export const METRIC_TOOLTIPS: Record<string, { label: string; explain: string }> = {
   pe_ratio: { label: "P/E", explain: "Price to Earnings ratio. Lower = cheaper relative to earnings." },
+  ev_to_fcf: { label: "EV/FCF", explain: "Enterprise Value to Free Cash Flow. Lower = cheaper on a cash basis. More reliable than P/E for capital-intensive businesses." },
   pb_ratio: { label: "P/B", explain: "Price to Book ratio. <1 = trading below asset value." },
   ev_to_ebitda: { label: "EV/EBITDA", explain: "Enterprise Value to EBITDA. Lower = cheaper including debt." },
   gross_margin: { label: "Gross Margin", explain: "Revenue minus cost of goods. Higher = better pricing power." },
@@ -22,6 +23,21 @@ export const METRIC_TOOLTIPS: Record<string, { label: string; explain: string }>
   eps_growth_yoy: { label: "EPS Growth", explain: "Year-over-year earnings growth. Positive = improving." },
   revenue_growth_yoy: { label: "Rev Growth", explain: "Year-over-year revenue growth. Shows demand." },
   payout_ratio: { label: "Payout", explain: "% of earnings paid as dividends. Lower = more reinvestment." },
+  operational_stability: { label: "Op Stability", explain: "Composite of gross margin, operating margin, leverage resilience (D/E), and interest coverage. Higher = more durable, survivable business." },
+  valuation_compression: { label: "Val Compression", explain: "Composite of inverted EV/EBITDA, P/E, P/B, and FCF yield. Higher = more undervalued, deeper discount to intrinsic value." },
+  shareholder_yield: { label: "Shareholder Yield", explain: "Dividend yield + buyback proxy + debt paydown proxy. Measures total capital returned to shareholders." },
+  ivrv: { label: "IVRV", explain: "Intrinsic Value Realization Velocity. Tracks EPS acceleration, revenue growth, improving capital allocation, and dividend signals. Higher = value thesis is actively working. Low IVRV + high compression = potential value trap." },
+  vrr: { label: "VRR", explain: "Value Realization Rate. How much of the gap between price and intrinsic value has already been captured. High VRR = thesis closing, low spread left. Low VRR = wide spread remaining." },
+  spread: { label: "Spread", explain: "Remaining gap between current price and intrinsic value. Higher spread = more undervalued, more upside potential. Driven by valuation compression composite." },
+  velocity: { label: "Velocity", explain: "Speed of value realization, derived from IVRV. Fast = thesis actively working (IVRV > 40). Moderate = some momentum (IVRV 15-40). Slow = little conversion (IVRV < 15), possible value trap." },
+  marginal_irr: { label: "Marginal IRR", explain: "Forward internal rate of return on the next dollar deployed at current prices. Declines as you add capital because average cost rises into a narrowing spread. Compare to your hurdle rate." },
+  kelly_fraction: { label: "Kelly %", explain: "Optimal fraction of capital to allocate based on edge and odds. f* = (bp - q) / b where b = IRR odds, p = probability of thesis working. Caps at 25%. Half-Kelly is usually safer." },
+  action: { label: "Action", explain: "Quadrant assignment based on spread + velocity. Add aggressively = wide spread + fast velocity. Rotate = narrow spread + slow velocity. Patience = wide spread but slow conversion." },
+  bvps_cagr: { label: "BVPS CAGR", explain: "Compound annual growth rate of Book Value Per Share. Measures internal wealth creation rate. 12-20% is the sweet spot for compounders. Approximated via ROE × retention ratio when direct history unavailable." },
+  look_through_pb: { label: "Look-Through P/B", explain: "Price-to-Book adjusted for subsidiaries, net cash, and hidden assets. Reported P/B × (tangible BV / total BV). Reveals true discount depth — Getty Oil's 0.63x became ~0.30x when accounting for subsidiaries." },
+  arbitrage_gap: { label: "Arbitrage Gap", explain: "Percentage difference between reported P/B and look-through P/B. Higher gap = more hidden value the market is ignoring. Gap > 20% suggests significant unrecognised assets." },
+  family_stake: { label: "Family Stake", explain: "Insider/family ownership percentage. >30% flagged as family-controlled. Strong alignment but may resist takeovers, extending the discount period — similar to Getty Oil's controlling family dynamic." },
+  quadrant: { label: "Quadrant", explain: "Zone assignment: Opportunity (high CAGR + low P/B), Efficient (high CAGR + high P/B), Value Trap (low CAGR + low P/B), Overvalued (low CAGR + high P/B), Patience (low P/B + moderate CAGR), Watch (everything else)." },
 };
 
 // Common CSS for all archetype views
@@ -58,6 +74,14 @@ export const SHARED_STYLES = `
     padding: 0.25rem 0.75rem;
     border-radius: 4px;
     border-left: 3px solid var(--signal-color, #22c55e);
+  }
+  .filter-label {
+    font-size: 0.7rem;
+    color: #64748b;
+    background: rgba(148, 163, 184, 0.08);
+    padding: 0.2rem 0.6rem;
+    border-radius: 3px;
+    font-family: ui-monospace, monospace;
   }
   
   /* Chart sections */

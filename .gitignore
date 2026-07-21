@@ -11,10 +11,12 @@ __pycache__/
 venv/
 *.egg-info/
 
-# Database files
+# Database files (local DuckDB — never committed; data lives in DuckLake/R2 in prod)
 *.duckdb
 *.duckdb.wal
-data/
+data/*
+!data/universe_sp500.json
+!data/universe_small_mid.json
 
 # Node
 node_modules/

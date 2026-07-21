@@ -212,7 +212,7 @@ export class ChartPanel extends HTMLElement {
   private render() {
     const metrics = [
       // Fields
-      "pe_ratio", "pb_ratio", "ps_ratio", "ev_to_ebitda",
+      "pe_ratio", "pb_ratio", "ps_ratio", "ev_to_ebitda", "ev_to_fcf",
       "gross_margin", "operating_margin", "net_margin",
       "revenue_growth_yoy", "eps_growth_yoy",
       "debt_to_equity", "fcf_yield", "dividend_yield",
@@ -327,6 +327,7 @@ export class ChartPanel extends HTMLElement {
                 <option value="pb_ratio" ${this.config.metric === "pb_ratio" ? "selected" : ""}>PB Ratio</option>
                 <option value="ps_ratio" ${this.config.metric === "ps_ratio" ? "selected" : ""}>PS Ratio</option>
                 <option value="ev_to_ebitda" ${this.config.metric === "ev_to_ebitda" ? "selected" : ""}>EV/EBITDA</option>
+                <option value="ev_to_fcf" ${this.config.metric === "ev_to_fcf" ? "selected" : ""}>EV/FCF</option>
               </optgroup>
               <optgroup label="Margins">
                 <option value="gross_margin" ${this.config.metric === "gross_margin" ? "selected" : ""}>Gross Margin</option>

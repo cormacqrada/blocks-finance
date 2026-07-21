@@ -109,6 +109,7 @@ export class CompoundersView extends HTMLElement {
       <div class="container">
         <div class="header">
           <h2>🏔️ Compounders</h2>
+          <span class="filter-label">Gross margin > 30% | Ranked by gross_margin</span>
           <span class="signal">"Boring business, exceptional outcome."</span>
         </div>
         
@@ -324,29 +325,35 @@ export class CompoundersView extends HTMLElement {
     const canvas = this.shadow.getElementById("margin-stability") as HTMLCanvasElement;
     if (!canvas || !this.data) return;
 
-    // Show current margin ranges as horizontal bar chart
+    // Filter out financials (gross_margin <= 0) since margin bands don't apply;
+    // then show stacked waterfall: gross > operating > net (each nested within the one above).
     const marginData = this.data.fundamentals
+      .slice(0, 25)
+      .filter((r: any) => (r.gross_margin || 0) > 0)
       .slice(0, 15)
       .map((r: any) => ({
         ticker: r.ticker,
+        name: r.company_name || r.ticker,
         gross: r.gross_margin || 0,
         operating: r.operating_margin || 0,
         net: r.net_margin || 0,
       }));
 
+    // Stacked bars: net_margin stacked on top of (operating_margin - net_margin)
+    // stacked on top of (gross_margin - operating_margin)\n    // This ensures net <= operating <= gross visually
     const chart = new Chart(canvas, {
       type: "bar",
       data: {
-        labels: marginData.map((d: any) => d.ticker),
+        labels: marginData.map((d: any) => `${d.ticker} — ${d.name.length > 20 ? d.name.slice(0, 20) + '…' : d.name}`),
         datasets: [
           {
-            label: "Gross Margin",
-            data: marginData.map((d: any) => d.gross),
+            label: "Gross → Operating",
+            data: marginData.map((d: any) => d.gross - d.operating),
             backgroundColor: "rgba(34, 197, 94, 0.7)",
           },
           {
-            label: "Operating Margin",
-            data: marginData.map((d: any) => d.operating),
+            label: "Operating → Net",
+            data: marginData.map((d: any) => d.operating - d.net),
             backgroundColor: "rgba(59, 130, 246, 0.7)",
           },
           {
@@ -365,16 +372,32 @@ export class CompoundersView extends HTMLElement {
             position: "top",
             labels: { color: "#94a3b8", boxWidth: 12 },
           },
+          tooltip: {
+            callbacks: {
+              label: (ctx: any) => {
+                const idx = ctx.dataIndex;
+                const d = marginData[idx];
+                if (!d) return "";
+                return [
+                  `Gross: ${d.gross.toFixed(1)}%`,
+                  `Operating: ${d.operating.toFixed(1)}%`,
+                  `Net: ${d.net.toFixed(1)}%`,
+                ];
+              },
+            },
+          },
         },
         scales: {
           x: {
-            title: { display: true, text: "Margin %", color: "#94a3b8" },
+            stacked: true,
+            title: { display: true, text: "Margin % (stacked waterfall)", color: "#94a3b8" },
             grid: { color: "rgba(148, 163, 184, 0.1)" },
             ticks: { color: "#94a3b8" },
           },
           y: {
+            stacked: true,
             grid: { display: false },
-            ticks: { color: "#94a3b8" },
+            ticks: { color: "#94a3b8", font: { size: 10 } },
           },
         },
       },

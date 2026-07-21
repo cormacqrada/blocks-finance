@@ -20,7 +20,13 @@
         width: 100%;
         max-width: 1600px;
         margin: 0 auto;
-        padding: 1.5rem;
+        padding: 0;
+      }
+      .page-header {
+        padding: 1.5rem 1.5rem 0;
+      }
+      .page-content {
+        padding: 0 1.5rem 1.5rem;
       }
       h1 {
         margin: 0;
@@ -110,6 +116,17 @@
         color: #94a3b8;
         text-transform: uppercase;
         margin-bottom: 0.5rem;
+      }
+      .universe-presets {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .universe-presets-label {
+        font-size: 0.7rem;
+        color: #64748b;
       }
       .universe-dropdown input {
         width: 100%;
@@ -509,6 +526,12 @@
         border-radius: 3px;
         font-family: monospace;
         margin-right: 0.2rem;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .ticker-tag:hover {
+        background: rgba(59, 130, 246, 0.35);
+        color: #bfdbfe;
       }
       .insight-metrics {
         display: flex;
@@ -980,10 +1003,88 @@
         text-underline-offset: 2px;
       }
       
-      /* Stock Detail View */
+      /* Main content layout with drawer */
+      .content-wrapper {
+        display: flex;
+        gap: 0;
+        transition: all 0.3s ease;
+        min-height: calc(100vh - 100px);
+      }
+      
+      /* Dashboard grid area */
+      .dashboard-area {
+        flex: 1;
+        min-width: 0;
+        transition: flex 0.3s ease;
+      }
+      
+      /* Stock Detail Drawer (inline, squeezes grid) */
+      #stock-detail-container {
+        width: 0;
+        min-width: 0;
+        background: rgba(15, 23, 42, 0.99);
+        border-left: 1px solid rgba(148,163,184,0.3);
+        overflow: hidden;
+        transition: width 0.3s ease, min-width 0.3s ease;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+      }
+      #stock-detail-container:not(.hidden) {
+        width: 500px;
+        min-width: 300px;
+      }
+      
+      /* Drawer collapse button (outside padding, full-width sticky header) */
+      .drawer-header {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        background: rgba(15, 23, 42, 0.98);
+        border-bottom: 1px solid rgba(148,163,184,0.2);
+        font-size: 0.7rem;
+        color: #64748b;
+      }
+      .drawer-header button {
+        background: none;
+        border: 1px solid rgba(148,163,184,0.3);
+        color: #94a3b8;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.75rem;
+        transition: all 0.15s ease;
+      }
+      .drawer-header button:hover {
+        background: rgba(148,163,184,0.1);
+        color: #e2e8f0;
+      }
+      .drawer-shortcut {
+        font-family: monospace;
+        opacity: 0.7;
+      }
+      
+      /* Drawer content area (scrollable, has padding) */
+      .drawer-content {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+      @media (max-width: 900px) {
+        #stock-detail-container:not(.hidden) {
+          width: 100%;
+          min-width: 100%;
+        }
+      }
+      
       .stock-detail {
-        max-width: 1200px;
-        margin: 0 auto;
+        padding: 1.25rem;
+        max-width: 100%;
+      }
+      #stock-detail-container .stock-detail {
+        margin-top: 0;
       }
       .stock-detail-header {
         display: flex;
@@ -1014,8 +1115,13 @@
       }
       .stock-title h1 {
         margin: 0;
-        font-size: 1.75rem;
+        font-size: 1.5rem;
         color: #e2e8f0;
+      }
+      .stock-company-name {
+        font-size: 0.85rem;
+        color: #94a3b8;
+        font-weight: 400;
       }
       .stock-price {
         font-size: 1.25rem;
@@ -1291,6 +1397,7 @@
   </head>
   <body>
     <main>
+      <div class="page-header">
       <header class="app-header">
         <div class="header-left">
           <h1>📊 blocks-finance</h1>
@@ -1325,6 +1432,12 @@
             </button>
             <div class="universe-dropdown" id="universe-dropdown" hidden>
               <div class="universe-dropdown-header">Global Universe</div>
+              <div class="universe-presets">
+                <span class="universe-presets-label">Presets:</span>
+                <button class="btn btn-sm btn-ghost universe-preset-btn" data-preset="default" title="~25 curated stocks">Default</button>
+                <button class="btn btn-sm btn-ghost universe-preset-btn" data-preset="sp500" title="Refresh S&P 500 in Settings first">S&P 500</button>
+                <button class="btn btn-sm btn-ghost universe-preset-btn" data-preset="small_mid" title="Small & Mid Cap ($300M–$10B)">Small & Mid Cap</button>
+              </div>
               <input type="text" id="universe-input" placeholder="AAPL, MSFT, GOOGL..." />
               <div class="universe-actions">
                 <button class="btn btn-sm" id="universe-apply">Apply to All</button>
@@ -1349,6 +1462,7 @@
                   <span class="status-dot" id="status-dot-detail"></span>
                   <span id="status-text">Checking...</span>
                 </div>
+                <div class="status-detail" id="status-freshness" style="margin-top: 0.25rem; font-size: 0.75rem; color: #94a3b8;"></div>
               </div>
               
               <div class="settings-section">
@@ -1363,6 +1477,9 @@
               
               <div class="settings-section">
                 <div class="settings-header">Data</div>
+                <button class="btn btn-sm btn-ghost" id="refresh-sp500-btn" style="width: 100%; margin-bottom: 0.25rem;">🔄 Refresh S&P 500 list</button>
+                <button class="btn btn-sm btn-ghost" id="refresh-small-mid-btn" style="width: 100%; margin-bottom: 0.25rem;">🔄 Refresh Small & Mid Cap list</button>
+                <p class="settings-hint" style="margin-bottom: 0.5rem;">Fetch universe constituents from FMP. S&P 500 can also use Wikipedia (free).</p>
                 <button class="btn btn-sm btn-primary" id="ingest-fmp-btn" style="width: 100%;">📥 Ingest from FMP</button>
                 <p class="settings-hint" style="margin-top: 0.5rem;">Pulls latest fundamentals for your tickers. Data persists in DuckDB.</p>
                 <div class="ingest-status" id="ingest-status"></div>
@@ -1371,18 +1488,22 @@
           </div>
         </div>
       </header>
-      
-      <!-- Stock Detail View (hidden by default) -->
-      <div id="stock-detail-container" class="hidden">
-        <!-- Stock detail view rendered here -->
       </div>
-      
-      <!-- Main Dashboard Grid -->
-      <div class="dashboard-container" id="dashboard-grid">
-        <!-- Panels are added dynamically -->
+      <div class="page-content">
+      <!-- Main content: dashboard + inline drawer -->
+      <div class="content-wrapper">
+        <div class="dashboard-area">
+          <div class="dashboard-container" id="dashboard-grid">
+            <!-- Panels are added dynamically -->
+          </div>
+        </div>
+        <div id="stock-detail-container" class="hidden">
+          <!-- Stock detail view rendered here -->
+        </div>
       </div>
       
       <!-- Add Panel Modal -->
+      </div>
       <div class="modal" id="add-panel-modal" hidden>
         <div class="modal-content">
           <div class="modal-header">
@@ -1418,6 +1539,7 @@
         const fmpKeyInput = document.getElementById('fmp-api-key');
         const toggleVisibility = document.getElementById('toggle-key-visibility');
         const saveKeyBtn = document.getElementById('save-api-key');
+        const refreshSp500Btn = document.getElementById('refresh-sp500-btn');
         const ingestBtn = document.getElementById('ingest-fmp-btn');
         const ingestStatus = document.getElementById('ingest-status');
         
@@ -1459,6 +1581,73 @@
             ingestStatus.className = 'ingest-status success';
             setTimeout(() => { ingestStatus.textContent = ''; }, 2000);
           }
+        });
+        
+        // Refresh S&P 500 list from FMP
+        refreshSp500Btn?.addEventListener('click', async () => {
+          const key = localStorage.getItem('blocks-fmp-api-key') || fmpKeyInput?.value?.trim();
+          if (!key) {
+            ingestStatus.textContent = '⚠️ Enter and save FMP API key first';
+            ingestStatus.className = 'ingest-status error';
+            return;
+          }
+          refreshSp500Btn.disabled = true;
+          ingestStatus.textContent = 'Refreshing S&P 500 list...';
+          ingestStatus.className = 'ingest-status';
+          try {
+            const resp = await fetch(`${API_URL}/api/universe/refresh`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ preset: 'sp500', api_key: key })
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              ingestStatus.textContent = `✅ S&P 500: ${data.count || 0} symbols`;
+              ingestStatus.className = 'ingest-status success';
+            } else {
+              const err = await resp.json().catch(() => ({}));
+              ingestStatus.textContent = `❌ ${err.detail || 'Refresh failed'}`;
+              ingestStatus.className = 'ingest-status error';
+            }
+          } catch (e) {
+            ingestStatus.textContent = '❌ Could not connect to backend';
+            ingestStatus.className = 'ingest-status error';
+          }
+          refreshSp500Btn.disabled = false;
+        });
+        
+        // Refresh Small & Mid Cap list from FMP
+        const refreshSmallMidBtn = document.getElementById('refresh-small-mid-btn');
+        refreshSmallMidBtn?.addEventListener('click', async () => {
+          const key = localStorage.getItem('blocks-fmp-api-key') || fmpKeyInput?.value?.trim();
+          if (!key) {
+            ingestStatus.textContent = '⚠️ Enter and save FMP API key first';
+            ingestStatus.className = 'ingest-status error';
+            return;
+          }
+          refreshSmallMidBtn.disabled = true;
+          ingestStatus.textContent = 'Refreshing Small & Mid Cap list...';
+          ingestStatus.className = 'ingest-status';
+          try {
+            const resp = await fetch(`${API_URL}/api/universe/refresh`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ preset: 'small_mid', api_key: key })
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              ingestStatus.textContent = `✅ Small & Mid Cap: ${data.count || 0} symbols`;
+              ingestStatus.className = 'ingest-status success';
+            } else {
+              const err = await resp.json().catch(() => ({}));
+              ingestStatus.textContent = `❌ ${err.detail || 'Refresh failed'}`;
+              ingestStatus.className = 'ingest-status error';
+            }
+          } catch (e) {
+            ingestStatus.textContent = '❌ Could not connect to backend';
+            ingestStatus.className = 'ingest-status error';
+          }
+          refreshSmallMidBtn.disabled = false;
         });
         
         // Ingest from FMP
@@ -1508,6 +1697,7 @@
         const statusDotDetail = document.getElementById('status-dot-detail');
         const statusLabel = document.getElementById('status-label');
         const statusText = document.getElementById('status-text');
+        const statusFreshness = document.getElementById('status-freshness');
         
         try {
           const resp = await fetch(`${API_URL}/health`);
@@ -1516,6 +1706,33 @@
             statusDotDetail?.classList.remove('offline');
             if (statusLabel) statusLabel.textContent = 'Connected';
             if (statusText) statusText.textContent = 'Backend is running';
+            
+            // Fetch data freshness
+            try {
+              const freshResp = await fetch(`${API_URL}/api/data_freshness`);
+              if (freshResp.ok) {
+                const freshData = await freshResp.json();
+                if (freshData.last_data_date && statusFreshness) {
+                  statusFreshness.textContent = `Last data: ${freshData.last_data_date}`;
+                } else if (statusFreshness) {
+                  statusFreshness.textContent = 'No data yet';
+                }
+                // Show per-table freshness counts
+                if (freshData.freshness && statusFreshness) {
+                  const counts = Object.entries(freshData.freshness)
+                    .filter(([_, v]) => v.row_count > 0)
+                    .map(([k, v]) => `${k}: ${v.row_count} rows`)
+                    .join(', ');
+                  if (counts && freshData.last_data_date) {
+                    statusFreshness.textContent = `Last data: ${freshData.last_data_date} | ${counts}`;
+                  } else if (counts) {
+                    statusFreshness.textContent = counts;
+                  }
+                }
+              }
+            } catch (e) {
+              // Freshness is optional
+            }
           } else {
             throw new Error('Not OK');
           }
@@ -1524,6 +1741,7 @@
           statusDotDetail?.classList.add('offline');
           if (statusLabel) statusLabel.textContent = 'Offline';
           if (statusText) statusText.textContent = 'Cannot reach backend';
+          if (statusFreshness) statusFreshness.textContent = '';
         }
       }
       

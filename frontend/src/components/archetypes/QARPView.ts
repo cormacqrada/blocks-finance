@@ -78,6 +78,7 @@ export class QARPView extends HTMLElement {
       <div class="container">
         <div class="header">
           <h2>💎 Quality at Reasonable Price</h2>
+          <span class="filter-label">Margin > 35% | P/E 5–30x | Ranked by fcf_yield</span>
           <span class="signal">"Pay fair, let fundamentals do the work."</span>
         </div>
         

@@ -79,6 +79,7 @@ export class AntifragileView extends HTMLElement {
       <div class="container">
         <div class="header">
           <h2>🛡️ Anti-Fragile</h2>
+          <span class="filter-label">D/E < 1 | FCF > 0 | Ranked by interest_coverage</span>
           <span class="signal">"Survives downturns, compounds through cycles."</span>
         </div>
         

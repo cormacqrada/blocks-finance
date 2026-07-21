@@ -201,6 +201,13 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     formula: "Enterprise Value / EBITDA",
     goodRange: "<10 is reasonable, <6 is cheap",
   },
+  ev_to_fcf: {
+    name: "EV/FCF",
+    description: "Enterprise value divided by free cash flow",
+    interpretation: "How many years of FCF it would take to buy the whole business. Lower = cheaper. More reliable than P/E because FCF is harder to manipulate.",
+    formula: "Enterprise Value / Free Cash Flow",
+    goodRange: "<15 is reasonable, <10 is cheap",
+  },
   
   // Dividends
   dividend_yield: {

@@ -77,6 +77,7 @@ export class CapitalAllocatorsView extends HTMLElement {
       <div class="container">
         <div class="header">
           <h2>💰 Capital Allocators</h2>
+          <span class="filter-label">FCF > 0 | Ranked by fcf_yield DESC</span>
           <span class="signal">"Per-share value compounds through smart capital deployment."</span>
         </div>
         

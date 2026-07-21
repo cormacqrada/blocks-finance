@@ -1,0 +1,117 @@
+name: Daily Data Ingestion
+
+# Runs Mon–Fri at 06:30 UTC (before US market open).
+# The Fly.io machine auto-starts on the incoming request and
+# goes back to sleep after — no need to keep it running 24/7.
+#
+# Equivalent to:  python -m app.run_ingestion --preset <preset> --period 2y
+# Same 5 sources, same order, same payloads:
+#   1. yfinance    (free — price history, earnings, securities)
+#   2. FMP         (fundamentals — skipped if no FMP_API_KEY)
+#   3. FRED        (macro indicators — skipped if no FRED_API_KEY)
+#   4. Finnhub     (news + analyst recs — skipped if no FINNHUB_API_KEY)
+#   5. SEC EDGAR   (free — 13F holdings + Form 4 insiders)
+#
+# Required GitHub secret:
+#   BACKEND_URL  →  https://blocks-finance.fly.dev  (no trailing slash)
+#
+# Optional GitHub secrets (keyed sources are skipped when these are absent):
+#   FMP_API_KEY      →  Financial Modeling Prep key
+#   FRED_API_KEY     →  FRED key
+#   FINNHUB_API_KEY  →  Finnhub key
+#
+# Manual trigger: Actions tab → "Daily Data Ingestion" → Run workflow.
+# You can pick the universe preset (default / sp500) from the dropdown.
+
+on:
+  schedule:
+    - cron: "30 6 * * 1-5"   # Mon–Fri 06:30 UTC
+  workflow_dispatch:          # manual trigger from GitHub UI
+    inputs:
+      preset:
+        description: "Universe preset"
+        type: choice
+        options: ["default", "sp500"]
+        default: "default"
+      period:
+        description: "yfinance history period"
+        type: choice
+        options: ["1y", "2y", "5y"]
+        default: "2y"
+
+jobs:
+  ingest:
+    name: Ingest price & fundamentals
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Map secrets → env once so the `if:` guards below are reliable.
+    # (Direct `if: ${{ secrets.X != '' }}` checks are flaky in GitHub Actions.)
+    env:
+      BACKEND_URL:     ${{ secrets.BACKEND_URL }}
+      FMP_API_KEY:     ${{ secrets.FMP_API_KEY }}
+      FRED_API_KEY:    ${{ secrets.FRED_API_KEY }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      PRESET:          ${{ github.event.inputs.preset || 'default' }}
+      PERIOD:          ${{ github.event.inputs.period || '2y' }}
+      HAS_FMP:         ${{ secrets.FMP_API_KEY != '' }}
+      HAS_FRED:        ${{ secrets.FRED_API_KEY != '' }}
+      HAS_FINNHUB:     ${{ secrets.FINNHUB_API_KEY != '' }}
+
+    steps:
+      - name: Show config
+        run: |
+          echo "Backend: $BACKEND_URL"
+          echo "Preset:  $PRESET"
+          echo "Period:  $PERIOD"
+          echo "Keys:    FMP=$HAS_FMP  FRED=$HAS_FRED  FINNHUB=$HAS_FINNHUB"
+
+      - name: Wake up Fly.io machine (health check)
+        run: |
+          curl --fail --retry 5 --retry-delay 10 "$BACKEND_URL/health"
+
+      # ── 1. yfinance (free — daily price history + earnings) ──────────────────
+      - name: Ingest yfinance
+        run: |
+          curl --fail --max-time 600 -s -X POST "$BACKEND_URL/ingest/yfinance" \
+            -H "Content-Type: application/json" \
+            -d "{\"preset\": \"$PRESET\", \"period\": \"$PERIOD\", \"include_earnings\": true}" \
+            | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
+
+      # ── 2. FMP fundamentals (skipped if no FMP_API_KEY secret) ───────────────
+      - name: Ingest FMP fundamentals
+        if: env.HAS_FMP == 'true'
+        run: |
+          curl --fail --max-time 300 -s -X POST "$BACKEND_URL/ingest/fmp" \
+            -H "Content-Type: application/json" \
+            -d "{\"preset\": \"$PRESET\", \"periods\": 4, \"period\": \"quarter\", \"api_key\": \"$FMP_API_KEY\"}" \
+            | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
+
+      # ── 3. FRED macro indicators (skipped if no FRED_API_KEY secret) ─────────
+      - name: Ingest FRED macro
+        if: env.HAS_FRED == 'true'
+        run: |
+          curl --fail --max-time 120 -s -X POST "$BACKEND_URL/ingest/fred" \
+            -H "Content-Type: application/json" \
+            -d "{\"years\": 5, \"api_key\": \"$FRED_API_KEY\"}" \
+            | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
+
+      # ── 4. Finnhub news + analyst recs (skipped if no FINNHUB_API_KEY secret) ─
+      - name: Ingest Finnhub
+        if: env.HAS_FINNHUB == 'true'
+        run: |
+          curl --fail --max-time 120 -s -X POST "$BACKEND_URL/ingest/finnhub" \
+            -H "Content-Type: application/json" \
+            -d "{\"preset\": \"$PRESET\", \"api_key\": \"$FINNHUB_API_KEY\", \"include_news\": true, \"include_recommendations\": true}" \
+            | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
+
+      # ── 5. SEC EDGAR (free — 13F + Form 4 insiders) ──────────────────────────
+      - name: Ingest SEC EDGAR
+        run: |
+          curl --fail --max-time 300 -s -X POST "$BACKEND_URL/ingest/sec_edgar" \
+            -H "Content-Type: application/json" \
+            -d "{\"preset\": \"$PRESET\", \"include_13f\": true, \"include_insiders\": true}" \
+            | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
+
+      - name: Done
+        run: echo "Ingestion complete at $(date -u)"

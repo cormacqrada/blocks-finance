@@ -77,6 +77,7 @@ export class ReRatingView extends HTMLElement {
       <div class="container">
         <div class="header">
           <h2>📈 Re-Rating Plays</h2>
+          <span class="filter-label">P/E 0–50x | Ranked by gross_margin DESC</span>
           <span class="signal">"Quality discovered, multiple expands."</span>
         </div>
         

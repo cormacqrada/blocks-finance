@@ -106,6 +106,79 @@ export const VIEW_EXPLANATIONS: Record<string, ViewExplanation> = {
       "Popular screens get crowded",
     ],
   },
+  "value-compression-map": {
+    title: "Value Compression Map",
+    purpose: "Find stocks where operational stability and valuation compression converge — durable businesses trading at deep discounts with capital being returned and thesis acceleration underway.",
+    lookFor: [
+      "Top-right target zone: High stability + high compression = ideal convergence",
+      "Bright bubbles: High IVRV means the value thesis is actively working",
+      "Large bubbles: High shareholder yield means fast capital return",
+      "Blue vs amber: S&P 500 vs small/mid cap — compare risk profiles across cap sizes",
+    ],
+    interpretation: "X-axis measures how boring and survivable the business is (margin durability + balance sheet). Y-axis measures how cheap the stock is (inverted multiples + FCF). The target zone (top-right, dashed green) is where all four signals converge: stable business, compressed valuation, high capital return, and accelerating realization. Stocks outside the target zone may be cheap but unstable (left), stable but expensive (bottom-right), or value traps (high compression + low IVRV).",
+    pitfalls: [
+      "High compression alone doesn't mean opportunity — low IVRV may indicate a permanent value trap",
+      "Stability scores can be misleading for financials and cyclicals (inherantly different margin structures)",
+      "Small cap data is noisier — confirm with direct due diligence",
+      "Shareholder yield can spike from one-time special dividends",
+    ],
+    relatedViews: ["torque-scatter", "greenblatt"],
+  },
+  "vrr-capital-view": {
+    title: "VRR Capital Deployment",
+    purpose: "See how much of your value thesis has been realized per position, and use Kelly + marginal IRR to decide exactly how much capital to add, hold, or rotate.",
+    lookFor: [
+      "VRR gauges: High % = thesis captured, low spread left; low % = wide spread remaining",
+      "Deployment matrix top-right: Wide spread + fast velocity = add aggressively",
+      "IRR curve Zone 1 (green): Above hurdle rate with positive Kelly = deploy capital",
+      "IRR curve Zone 3 (red): Below hurdle rate = stop adding, value trap boundary",
+    ],
+    interpretation: "VRR (Value Realization Rate) measures thesis progress: 50% VRR means half the gap to intrinsic value has closed. The deployment matrix plots velocity (IVRV) vs spread (compression) — top-right is the add zone. The Kelly + IRR simulator is the key capital allocation tool: as you add more capital at current prices, your average cost rises and marginal IRR declines. Kelly fraction shrinks accordingly. The three zones tell you: deploy (IRR > hurdle + Kelly > 0), diminishing returns (half-Kelly discipline), stop (IRR < hurdle). Drag the capital slider to find your exact sizing ceiling.",
+    pitfalls: [
+      "Kelly assumes fixed odds — but in value investing, edge is a function of price (the IRR curve makes this explicit)",
+      "IRR estimates depend on velocity multipliers — slow stocks may never realize their spread",
+      "Half-Kelly is usually safer than full Kelly — it gives up ~25% of growth but cuts variance dramatically",
+      "Graham intrinsic value estimates are approximate — actual value depends on future cash flows",
+    ],
+    relatedViews: ["value-compression-map", "greenblatt"],
+  },
+  "watchlist-momentum": {
+    title: "Momentum Watchlist",
+    purpose: "Track your personal watchlist with session-by-session momentum ribbons, timeframe-synced % change, volatility scores, and streak-based sort — so you can spot which stocks are building consistent directional momentum vs. one-day spikes.",
+    lookFor: [
+      "🔥 Streak sort: stocks with ≥3 consecutive up sessions are building momentum — watch for continuation",
+      "Ribbon shape: steady green bars = consistent uptrend; alternating = choppy; long red run = distribution",
+      "High Vol + High Streak: risky but high-velocity; Low Vol + High Streak: highest quality momentum",
+      "Correlation matrix (red pairs): stocks that tend to fall together — reduce concentration risk",
+      "% toggle: switch to $ mode to compare absolute dollar impact on a fixed-dollar position",
+    ],
+    interpretation: "Change the timeframe first — all % changes, ribbons, and streaks resync to that window. 1M is the default: good for swing trade momentum. Use 1Y to find secular leaders. Streaks are counted at the ribbon bar level so a '▲5' in 1D means 5 hourly bars; in 1M it means 5 trading days. Sort by 🔥 Streak to float the true momentum leaders. Click any ribbon bar for the exact date, session return, close price, and cumulative gain.",
+    pitfalls: [
+      "Simulated data — connect backend /api/price_history for live prices",
+      "Streak length alone doesn't predict continuation; confirm with volume and fundamentals",
+      "High correlation (red matrix) = undiversified — a market drop will hit all of them simultaneously",
+      "Volatility shows historical range, not future risk; a low-vol stock can gap on earnings",
+    ],
+    relatedViews: ["torque-scatter", "compounding-discount-monitor"],
+  },
+  "compounding-discount-monitor": {
+    title: "Compounding Discount Monitor — Getty Oil Inspired",
+    purpose: "Track the disconnect between a company's internal wealth creation (compounding book value) and its market perception (Price-to-Book ratio). Inspired by Getty Oil, which compounded BVPS at 11% CAGR while trading at 0.63x P/B — eventually delivering 17.5% CAGR over 22 years ($18 to $625).",
+    lookFor: [
+      "Opportunity quadrant (top-left): High BVPS CAGR + low P/B = compounding at a discount — the sweet spot",
+      "Getty-type gaps: Stocks compounding ≥10% at P/B < 0.8x — the market is blind to internal value creation",
+      "Look-through toggle: Adjusts P/B for subsidiaries, net cash, and hidden assets — reveals true discount depth",
+      "Family stake filter: Insider-controlled compounders may stay discounted longer (takeover protection), but alignment is strong",
+    ],
+    interpretation: "The scatter maps P/B ratio (x-axis) against BVPS CAGR (y-axis). The fair-value line at P/B = 1.0 separates discount from premium. The sweet-spot band (12-20% CAGR) shows ideal compounder territory. When look-through P/B is enabled, positions shift left as hidden assets reduce effective P/B — some stocks move from 'watch' into 'opportunity'. The BVPS trail shows the widening arbitrage gap: book value compounds upward while price stays flat, creating a growing divergence that eventually closes (as it did for Getty Oil).",
+    pitfalls: [
+      "Low P/B + low CAGR = value trap — the business isn't actually compounding, it's just cheap for a reason",
+      "Family-controlled discounts may persist for decades — don't bet on near-term catalyst",
+      "Look-through adjustments are estimates — tangible book and net cash may differ from true subsidiary value",
+      "CAGR approximated via sustainable growth (ROE × retention) may not match actual 5-year history",
+    ],
+    relatedViews: ["value-compression-map", "vrr-capital-view"],
+  },
 };
 
 export class ViewExplainer extends HTMLElement {

@@ -321,7 +321,7 @@ export async function renderUniverseInsights(
     const result = await fetchScreenData({
       filters: universe ? [{ field: "ticker", op: "IN" as const, value: universe }] : [],
       columns: [
-        "ticker", "pe_ratio", "pb_ratio", "ps_ratio",
+        "ticker", "pe_ratio", "pb_ratio", "ps_ratio", "ev_to_fcf",
         "return_on_capital", "earnings_yield", "gross_margin", "operating_margin",
         "debt_to_equity", "interest_coverage", "eps_growth_yoy", "revenue_growth_yoy",
         "enterprise_value", "market_cap", "free_cash_flow", "fcf_yield"
@@ -398,7 +398,7 @@ function renderInsightCard(insight: UniverseInsight): string {
       <div class="insight-details">${insight.details}</div>
       ${insight.tickers.length > 0 ? `
         <div class="insight-tickers">
-          <strong>Tickers:</strong> ${insight.tickers.map(t => `<span class="ticker-tag">${t}</span>`).join(" ")}
+          <strong>Tickers:</strong> ${insight.tickers.map(t => `<span class="ticker-tag ticker-link" data-ticker="${t}">${t}</span>`).join(" ")}
         </div>
       ` : ""}
       <div class="insight-metrics">

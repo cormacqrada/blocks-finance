@@ -10,7 +10,7 @@ import { getMetricTooltip, formatMetricName } from "../utils/metricTooltips";
 
 const ALL_FIELDS = Object.values(FIELD_CATEGORIES).flat();
 
-export type PanelType = "screener" | "chart" | "table" | "greenblatt" | "torque-scatter" | "torque-ranking" | "torque-heatmap" | "universe-insights";
+export type PanelType = "screener" | "chart" | "table" | "greenblatt" | "torque-scatter" | "torque-ranking" | "torque-heatmap" | "universe-insights" | "value-compression-map" | "vrr-capital-view" | "compounding-discount-monitor";
 
 export interface PanelConfig {
   id: string;
@@ -119,7 +119,7 @@ export class DashboardPanel extends HTMLElement {
           filters: this.config.filters || [],
           rank_by: this.config.rank_by || "pe_ratio",
           rank_order: this.config.rank_order || "ASC",
-          columns: this.config.columns || ["ticker", "price", "pe_ratio", "gross_margin"],
+          columns: this.config.columns || ["ticker", "price", "pe_ratio", "ev_to_fcf", "gross_margin"],
           formulas: this.config.formulas || [],
           limit: this.config.limit || 20,
         });
@@ -200,7 +200,7 @@ export class DashboardPanel extends HTMLElement {
   }
 
   private render() {
-    const defaultColumns = this.config.columns || ["ticker", "price", "pe_ratio", "gross_margin", "debt_to_equity"];
+    const defaultColumns = this.config.columns || ["ticker", "price", "pe_ratio", "ev_to_fcf", "gross_margin", "debt_to_equity"];
     
     this.shadow.innerHTML = `
       <style>
@@ -647,7 +647,7 @@ export class DashboardPanel extends HTMLElement {
     // Determine columns based on type
     let columns: string[];
     if (this.config.type === "greenblatt") {
-      columns = ["ticker", "as_of", "earnings_yield", "return_on_capital", "rank"];
+      columns = ["ticker", "company_name", "as_of", "earnings_yield", "return_on_capital", "rank"];
     } else {
       columns = this.config.columns || ["ticker", "price", "pe_ratio"];
     }
@@ -674,8 +674,11 @@ export class DashboardPanel extends HTMLElement {
                 const isPositive = isNum && val > 0 && (c.includes("margin") || c.includes("yield") || c.includes("growth"));
                 const isNegative = isNum && val < 0;
                 const isTicker = c === "ticker";
+                const isCompanyName = c === "company_name";
                 const content = isTicker 
                   ? `<span class="ticker-link" data-ticker="${val}">${val}</span>`
+                  : isCompanyName
+                  ? `<span style="color:#94a3b8;font-size:0.8rem">${val || ""}</span>`
                   : this.formatValue(val, c);
                 return `<td class="${isNum ? "number" : ""} ${isPositive ? "positive" : ""} ${isNegative ? "negative" : ""}">${content}</td>`;
               }).join("")}

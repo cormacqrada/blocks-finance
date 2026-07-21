@@ -53,7 +53,7 @@ Quality Score: gross_margin * 0.3 + operating_margin * 0.3 + ...
 | Source | Data Type | Cost | API Key Required |
 |--------|-----------|------|------------------|
 | **Yahoo Finance** (yfinance) | Price history, securities info | Free | No |
-| **SEC EDGAR** | Insider transactions (Form 4), 13F filings | Free | No |
+| **SEC EDGAR** (edgartools) | Insider transactions (Form 4), 13F holdings | Free | No (set `EDGAR_IDENTITY` recommended) |
 | **Finnhub** | Company news, analyst recommendations | Free tier (60 calls/min) | Yes |
 | **FRED** | Macro indicators (rates, VIX, CPI, etc.) | Free | Yes |
 | **Financial Modeling Prep** | Detailed fundamentals | Paid | Yes |
@@ -99,7 +99,7 @@ blocks-finance/
 cd backend
 
 # Create virtual environment
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install dependencies
@@ -139,7 +139,8 @@ curl -X POST http://localhost:8000/ingest/yfinance \
   -H "Content-Type: application/json" \
   -d '{"period": "2y"}'
 
-# SEC EDGAR - Insider transactions (free, rate limited to 10 req/sec)
+# SEC EDGAR - Insider transactions (Form 4) and 13F institutional holdings (free, via edgartools)
+# Set EDGAR_IDENTITY for SEC compliance, e.g. export EDGAR_IDENTITY="Your Name you@example.com"
 curl -X POST http://localhost:8000/ingest/sec_edgar \
   -H "Content-Type: application/json"
 ```
@@ -175,6 +176,70 @@ curl -X POST http://localhost:8000/ingest/yfinance \
   -d '{"tickers": ["AAPL", "MSFT", "GOOGL"], "period": "5y"}'
 ```
 
+**Expanding to a broader market (S&P 500):**
+
+- **Presets:** The app supports universe presets: `default` (~25 curated tickers) and `sp500` (~500 stocks). Use `sp500` for screening and dashboards across the broad US large-cap market.
+- **Refresh S&P 500 list:** With an FMP API key, refresh the cached S&P 500 constituent list:
+  - **UI:** Settings → "Refresh S&P 500 list", then in the universe dropdown choose "S&P 500".
+  - **API:** `POST /api/universe/refresh` with `{"api_key": "..."}` or set `FMP_API_KEY`; then `GET /api/universe?preset=sp500` returns the tickers.
+- **Ingestion with preset:** Ingest using the S&P 500 universe:
+  - `POST /ingest/run_all` with `{"preset": "sp500"}` (or `POST /ingest/fmp` with `{"preset": "sp500"}`).
+  - CLI: `python -m app.run_ingestion --preset sp500` (backend must be running; run refresh first so the backend has the list).
+- **Scheduled runs:** Set `INGESTION_UNIVERSE_PRESET=sp500` so scheduled ingestion uses the broader universe.
+
+**4. Run all sources at once (recommended for dashboard):**
+
+The backend and a CLI script can run every ingest in one go. Best data sources per use case:
+
+| Dashboard need | Best source | Key |
+|----------------|-------------|-----|
+| Fundamentals, Greenblatt, screens | **FMP** | `FMP_API_KEY` |
+| Price history, earnings | **yfinance** | None (free) |
+| Macro panel | **FRED** | `FRED_API_KEY` |
+| Company news, analyst recs | **Finnhub** | `FINNHUB_API_KEY` |
+| Insider activity, whale tracker | **SEC EDGAR** | None (free) |
+
+**From the API (run all ingestion):**
+```bash
+curl -X POST http://localhost:8000/ingest/run_all \
+  -H "Content-Type: application/json" \
+  -d '{}'
+# Optional: {"tickers": ["AAPL", "MSFT"], "period": "2y", "fred_years": 5}
+```
+
+**From the CLI (backend must be running):**
+```bash
+cd backend
+export FMP_API_KEY=your_key    # optional
+export FRED_API_KEY=your_key   # optional
+export FINNHUB_API_KEY=your_key # optional
+python -m app.run_ingestion
+# Custom tickers: python -m app.run_ingestion AAPL MSFT GOOGL
+# Only some sources: python -m app.run_ingestion --only yfinance,fmp,fred
+```
+
+**Scheduled pulls:**
+
+Enable daily (or custom) ingestion without cron:
+
+```bash
+# In production, enable scheduler (e.g. in env or Docker)
+export INGESTION_SCHEDULE_ENABLED=1
+export INGESTION_SCHEDULE_CRON="0 6 * * *"   # 6:00 AM daily (default)
+export INGESTION_BASE_URL=http://localhost:8000  # URL for self-calls
+# Set FMP_API_KEY, FRED_API_KEY, FINNHUB_API_KEY as needed
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Check schedule status: `GET /api/ingestion/schedule`
+
+Alternatively, use system cron to run the CLI script:
+
+```bash
+# Example: daily at 6am
+0 6 * * * cd /path/to/blocks-finance/backend && .venv/bin/python -m app.run_ingestion
+```
+
 ### Updating the Database
 
 The database uses DuckDB and is stored at `backend/data/finance.duckdb`.
@@ -205,6 +270,9 @@ curl http://localhost:8000/api/data_sources
 - `GET /api/whale_holdings/{ticker}` - Institutional holders
 - `GET /api/company_news/{ticker}` - Recent news
 - `GET /api/macro_overview` - Macro indicators
+- `GET /api/universe?preset=default|sp500` - Ticker list for preset
+- `GET /api/universe/presets` - Available universe presets
+- `POST /api/universe/refresh` - Refresh S&P 500 list from FMP (body: optional `api_key`)
 
 **Ingestion:**
 - `POST /ingest/yfinance` - Yahoo Finance
@@ -212,6 +280,8 @@ curl http://localhost:8000/api/data_sources
 - `POST /ingest/finnhub` - Finnhub
 - `POST /ingest/fred` - FRED
 - `POST /ingest/fmp` - Financial Modeling Prep
+- `POST /ingest/run_all` - Run all ingestion sources (uses env API keys)
+- `GET /api/ingestion/schedule` - Scheduled ingestion status (enabled, cron)
 
 ### Deployment
 

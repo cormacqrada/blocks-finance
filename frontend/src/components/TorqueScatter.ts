@@ -14,13 +14,14 @@ import { fetchScreenData, type ScreenFilter } from "../api/client";
 
 export interface TorqueScatterConfig {
   title?: string;
-  valuationMetric?: "pe_ratio" | "ev_to_ebitda";
+  valuationMetric?: "pe_ratio" | "ev_to_ebitda" | "ev_to_fcf";
   universe?: string[];
   limit?: number;
 }
 
 interface DataPoint {
   ticker: string;
+  companyName: string;
   x: number; // EPS acceleration
   y: number; // Valuation
   marginTrend: number; // For color
@@ -68,37 +69,68 @@ export class TorqueScatter extends HTMLElement {
     const valMetric = this.config.valuationMetric || "pe_ratio";
     
     try {
+      // Build filters to exclude stocks with unreasonable data
+      const filters: ScreenFilter[] = [];
+      
+      // For P/E, only show stocks with positive P/E under 100
+      if (valMetric === "pe_ratio") {
+        filters.push({ field: "pe_ratio", op: ">", value: 0 });
+        filters.push({ field: "pe_ratio", op: "<", value: 100 });
+      } else if (valMetric === "ev_to_ebitda") {
+        filters.push({ field: "ev_to_ebitda", op: ">", value: 0 });
+        filters.push({ field: "ev_to_ebitda", op: "<", value: 50 });
+      }
+      // Filter extreme EPS growth outliers
+      filters.push({ field: "eps_growth_yoy", op: ">", value: -100 });
+      filters.push({ field: "eps_growth_yoy", op: "<", value: 200 });
+
+      // For ev_to_fcf, use the formula endpoint since it's a computed metric
+      const isFormula = valMetric === "ev_to_fcf";
+      const formulaIds = isFormula ? ["formula:ev_to_fcf"] : [];
+      const columns = isFormula
+        ? ["ticker", "company_name", "price", "pe_ratio", "eps_growth_yoy", "gross_margin", "operating_margin", "revenue_growth_yoy", "debt_to_equity", "market_cap"]
+        : ["ticker", "company_name", "price", valMetric, "eps_growth_yoy", "gross_margin", "operating_margin", "revenue_growth_yoy", "debt_to_equity", "market_cap"];
+
       const result = await fetchScreenData({
-        filters: [],
-        columns: [
-          "ticker", "price", valMetric, "eps_growth_yoy", 
-          "gross_margin", "operating_margin", "revenue_growth_yoy",
-          "debt_to_equity", "market_cap"
-        ],
-        formulas: [],
+        filters: isFormula ? [] : filters,
+        columns,
+        formulas: formulaIds,
         rank_by: "eps_growth_yoy",
         rank_order: "DESC",
-        limit: this.config.limit || 50,
+        limit: this.config.limit || 80,
       });
 
-      // Transform to scatter data points
-      this.data = result.rows.map((row: any) => {
-        const epsAccel = row.eps_growth_yoy || 0;
-        const valuation = row[valMetric] || 0;
-        // Margin trend: approximate with gross margin level (would need historical for true trend)
-        const marginTrend = (row.gross_margin || 0) - 30; // Centered around 30%
-        // Operating leverage: revenue growth vs margin (simplified)
-        const opLeverage = Math.abs(row.operating_margin || 0) / 10;
-        
-        return {
-          ticker: row.ticker,
-          x: epsAccel,
-          y: valuation,
-          marginTrend,
-          opLeverage: Math.max(3, Math.min(opLeverage * 3, 20)),
-          raw: row,
-        };
-      });
+      // Transform to scatter data points, filtering bad data client-side too
+      this.data = result.rows
+        .map((row: any) => {
+          const epsAccel = row.eps_growth_yoy || 0;
+          // For ev_to_fcf, get the computed value from the formula result
+          const valuation = isFormula ? (row["EV/FCF Ratio"] || row.ev_to_fcf || 0) : (row[valMetric] || 0);
+          // Margin trend: approximate with gross margin level (would need historical for true trend)
+          const marginTrend = (row.gross_margin || 0) - 30; // Centered around 30%
+          // Operating leverage: revenue growth vs margin (simplified)
+          const opLeverage = Math.abs(row.operating_margin || 0) / 10;
+          
+          const companyName = row.company_name || "";
+          return {
+            ticker: row.ticker,
+            companyName,
+            x: epsAccel,
+            y: valuation,
+            marginTrend,
+            opLeverage: Math.max(3, Math.min(opLeverage * 3, 20)),
+            raw: { ...row, [valMetric]: valuation },
+          };
+        })
+        .filter(d => {
+          // Client-side sanity: skip zero/negative/extreme valuations
+          if (d.y <= 0) return false;
+          if (d.x < -100 || d.x > 200) return false;
+          if (valMetric === "pe_ratio" && d.y > 100) return false;
+          if (valMetric === "ev_to_ebitda" && d.y > 50) return false;
+          if (valMetric === "ev_to_fcf" && d.y > 100) return false;
+          return true;
+        });
 
       this.renderChart();
     } catch (e) {
@@ -119,7 +151,7 @@ export class TorqueScatter extends HTMLElement {
 
     this.chart?.destroy();
 
-    const valLabel = this.config.valuationMetric === "ev_to_ebitda" ? "EV/EBITDA" : "P/E Ratio";
+    const valLabel = this.config.valuationMetric === "ev_to_ebitda" ? "EV/EBITDA" : this.config.valuationMetric === "ev_to_fcf" ? "EV/FCF" : "P/E Ratio";
 
     this.chart = new Chart(canvas, {
       type: "scatter",
@@ -130,6 +162,7 @@ export class TorqueScatter extends HTMLElement {
             x: d.x,
             y: d.y,
             ticker: d.ticker,
+            companyName: d.companyName,
             raw: d.raw,
           })),
           backgroundColor: this.data.map(d => this.getPointColor(d.marginTrend)),
@@ -148,8 +181,9 @@ export class TorqueScatter extends HTMLElement {
             callbacks: {
               label: (ctx: any) => {
                 const point = ctx.raw;
+                const name = point.companyName ? ` — ${point.companyName}` : "";
                 return [
-                  `${point.ticker}`,
+                  `${point.ticker}${name}`,
                   `EPS Growth: ${point.x.toFixed(1)}%`,
                   `${valLabel}: ${point.y.toFixed(1)}x`,
                 ];
@@ -174,6 +208,8 @@ export class TorqueScatter extends HTMLElement {
               color: "rgba(148, 163, 184, 0.1)",
             },
             ticks: { color: "#64748b" },
+            suggestedMin: -20,
+            suggestedMax: 100,
           },
           y: {
             title: {
@@ -186,7 +222,9 @@ export class TorqueScatter extends HTMLElement {
               color: "rgba(148, 163, 184, 0.1)",
             },
             ticks: { color: "#64748b" },
-            reverse: true, // Lower P/E at top (better value)
+            reverse: true, // Lower multiple at top (better value)
+            suggestedMin: 0,
+            suggestedMax: this.config.valuationMetric === "ev_to_fcf" ? 50 : 60,
           },
         },
         onClick: (_event: any, elements: any[]) => {
@@ -231,9 +269,14 @@ export class TorqueScatter extends HTMLElement {
     if (!point) return;
 
     const r = point.raw;
+    const valMetric = this.config.valuationMetric || "pe_ratio";
+    const valLabel = valMetric === "ev_to_ebitda" ? "EV/EBITDA" : valMetric === "ev_to_fcf" ? "EV/FCF" : "P/E Ratio";
+    const valValue = r[valMetric] ?? r["EV/FCF Ratio"] ?? null;
+
+    const companyName = r.company_name || "";
     details.innerHTML = `
       <div class="detail-header">
-        <span class="detail-ticker">${point.ticker}</span>
+        <span class="detail-ticker">${point.ticker}${companyName ? ` — ${companyName}` : ""}</span>
         <span class="detail-price">$${r.price?.toFixed(2) || "—"}</span>
       </div>
       <div class="detail-grid">
@@ -242,8 +285,8 @@ export class TorqueScatter extends HTMLElement {
           <span class="detail-value ${r.eps_growth_yoy > 0 ? 'positive' : 'negative'}">${r.eps_growth_yoy?.toFixed(1)}%</span>
         </div>
         <div class="detail-item">
-          <span class="detail-label">P/E Ratio</span>
-          <span class="detail-value">${r.pe_ratio?.toFixed(1)}x</span>
+          <span class="detail-label">${valLabel}</span>
+          <span class="detail-value">${valValue != null ? valValue.toFixed(1) + 'x' : 'N/A'}</span>
         </div>
         <div class="detail-item">
           <span class="detail-label">Gross Margin</span>

@@ -77,6 +77,7 @@ export class StructuralWinnersView extends HTMLElement {
       <div class="container">
         <div class="header">
           <h2>🚀 Structural Winners</h2>
+          <span class="filter-label">Revenue growth > 5% | Ranked by revenue_growth_yoy DESC</span>
           <span class="signal">"Demand grows regardless of cycle."</span>
         </div>
         

@@ -86,6 +86,7 @@ export class TurnaroundsView extends HTMLElement {
       <div class="container">
         <div class="header">
           <h2>🔄 Turnarounds</h2>
+          <span class="filter-label">No filter | Ranked by eps_growth_yoy DESC</span>
           <span class="signal">"Survival risk collapses."</span>
         </div>
         

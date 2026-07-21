@@ -12,6 +12,7 @@ import "./CompanyNewsPanel";
 
 interface StockData {
   ticker: string;
+  company_name?: string;
   price?: number;
   market_cap?: number;
   enterprise_value?: number;
@@ -19,6 +20,7 @@ interface StockData {
   pb_ratio?: number;
   ps_ratio?: number;
   ev_to_ebitda?: number;
+  ev_to_fcf?: number;
   earnings_yield?: number;
   return_on_capital?: number;
   gross_margin?: number;
@@ -65,6 +67,11 @@ export class StockDetailView extends HTMLElement {
 
   connectedCallback() {
     this.render();
+    // Scroll drawer to top when opened so header is visible
+    const container = this.closest("#stock-detail-container");
+    if (container) {
+      container.scrollTop = 0;
+    }
   }
 
   attributeChangedCallback(name: string, _old: string, value: string) {
@@ -87,8 +94,8 @@ export class StockDetailView extends HTMLElement {
         fetchScreenData({
           filters: [{ field: "ticker", op: "=" as const, value: this.ticker }],
           columns: [
-            "ticker", "price", "market_cap", "enterprise_value",
-            "pe_ratio", "pb_ratio", "ps_ratio", "ev_to_ebitda",
+            "ticker", "company_name", "price", "market_cap", "enterprise_value",
+            "pe_ratio", "pb_ratio", "ps_ratio", "ev_to_ebitda", "ev_to_fcf",
             "earnings_yield", "return_on_capital",
             "gross_margin", "operating_margin", "net_margin",
             "revenue_growth_yoy", "eps_growth_yoy",
@@ -137,6 +144,12 @@ export class StockDetailView extends HTMLElement {
       else { details.push("P/E elevated"); }
     }
 
+    if (this.data.ev_to_fcf && this.data.ev_to_fcf > 0) {
+      if (this.data.ev_to_fcf < 15) { score += 2; details.push("EV/FCF below 15 ✓"); }
+      else if (this.data.ev_to_fcf < 30) { score += 1; details.push("EV/FCF reasonable"); }
+      else { details.push("EV/FCF elevated"); }
+    }
+
     if (this.data.pb_ratio && this.data.pb_ratio > 0) {
       if (this.data.pb_ratio < 1.5) { score += 2; details.push("P/B below 1.5 ✓"); }
       else if (this.data.pb_ratio < 3) { score += 1; details.push("P/B reasonable"); }
@@ -148,7 +161,7 @@ export class StockDetailView extends HTMLElement {
       else if (this.data.earnings_yield > 0.05) { score += 1; details.push("Decent earnings yield"); }
     }
 
-    return { score, max: 6, details };
+    return { score, max: 8, details };
   }
 
   private calculateGrowthScore(): { score: number; max: number; details: string[] } {
@@ -214,7 +227,7 @@ export class StockDetailView extends HTMLElement {
     }
 
     // Ratios
-    if (key.includes("ratio") || key === "ev_to_ebitda" || key === "interest_coverage") {
+    if (key.includes("ratio") || key === "ev_to_ebitda" || key === "ev_to_fcf" || key === "interest_coverage") {
       return value.toFixed(2);
     }
 
@@ -266,11 +279,16 @@ export class StockDetailView extends HTMLElement {
     const health = this.calculateHealthScore();
 
     this.innerHTML = `
-      <div class="stock-detail">
-        <header class="stock-detail-header">
-          <button class="back-btn" id="back-btn">← Back</button>
+      <div class="drawer-header">
+        <span>Press <span class="drawer-shortcut">Esc</span> to close</span>
+        <button id="drawer-close-btn">✕ Close</button>
+      </div>
+      <div class="drawer-content">
+        <div class="stock-detail">
+          <header class="stock-detail-header">
           <div class="stock-title">
             <h1>${this.ticker}</h1>
+            ${this.data.company_name ? `<span class="stock-company-name">${this.data.company_name}</span>` : ''}
             ${this.data.price ? `<span class="stock-price">$${this.data.price.toFixed(2)}</span>` : ''}
           </div>
           ${this.data.market_cap ? `<span class="stock-cap">${this.formatValue(this.data.market_cap, 'market_cap')} Market Cap</span>` : ''}
@@ -308,6 +326,7 @@ export class StockDetailView extends HTMLElement {
             <h3>📊 Valuation</h3>
             <div class="metrics-list">
               ${this.renderMetric("pe_ratio", this.data.pe_ratio)}
+              ${this.renderMetric("ev_to_fcf", this.data.ev_to_fcf)}
               ${this.renderMetric("pb_ratio", this.data.pb_ratio)}
               ${this.renderMetric("ps_ratio", this.data.ps_ratio)}
               ${this.renderMetric("ev_to_ebitda", this.data.ev_to_ebitda)}
@@ -362,10 +381,11 @@ export class StockDetailView extends HTMLElement {
           </section>
         </div>
       </div>
+      </div>
     `;
 
-    // Back button
-    this.querySelector("#back-btn")?.addEventListener("click", () => {
+    // Close drawer button
+    this.querySelector("#drawer-close-btn")?.addEventListener("click", () => {
       this.dispatchEvent(new CustomEvent("close-detail", { bubbles: true }));
     });
     
@@ -384,6 +404,8 @@ export class StockDetailView extends HTMLElement {
     if (value !== null && value !== undefined && typeof value === "number") {
       // Color coding based on metric quality
       if (key === "pe_ratio" && value > 0) {
+        quality = value < 15 ? "good" : value > 30 ? "bad" : "";
+      } else if (key === "ev_to_fcf" && value > 0) {
         quality = value < 15 ? "good" : value > 30 ? "bad" : "";
       } else if (key === "debt_to_equity") {
         quality = value < 0.5 ? "good" : value > 1.5 ? "bad" : "";

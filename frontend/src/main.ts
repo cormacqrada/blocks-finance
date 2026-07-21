@@ -26,6 +26,10 @@ import "./components/WhaleTrackerPanel";
 import "./components/MacroOverviewPanel";
 import "./components/InsiderActivityPanel";
 import "./components/CompanyNewsPanel";
+import "./components/ValueCompressionMap";
+import "./components/VRRCapitalView";
+import "./components/CompoundingDiscountMonitor";
+import "./components/MomentumWatchlistPanel";
 import { type PanelConfig } from "./components/DashboardPanel";
 import { FINANCE_RECIPES_REGISTRY } from "./recipes/financeRecipes";
 import { renderUniverseInsights } from "./components/UniverseInsights";
@@ -150,6 +154,10 @@ const defaultHeights: Record<string, number> = {
   "macro-overview": 7,
   "insider-activity": 6,
   "company-news": 6,
+  "value-compression-map": 8,
+  "vrr-capital-view": 14,
+  "compounding-discount-monitor": 14,
+  "watchlist-momentum": 16,
 };
 
 // Render all panels with GridStack integration
@@ -246,6 +254,47 @@ function renderDashboard() {
       "insider-activity": "insider-activity-panel",
       "company-news": "company-news-panel",
     };
+    // Special handling for value compression map
+    if ((panelConfig.type as string) === "value-compression-map") {
+      const vcEl = document.createElement("value-compression-map");
+      if (effectiveConfig.universe) {
+        vcEl.setAttribute("config", JSON.stringify({ universe: effectiveConfig.universe, limit: effectiveConfig.limit || 100 }));
+      }
+      gridContent.appendChild(vcEl);
+      gridItem.appendChild(gridContent);
+      gridEl.appendChild(gridItem);
+      continue;
+    }
+    // Special handling for VRR capital view
+    if ((panelConfig.type as string) === "vrr-capital-view") {
+      const vrrEl = document.createElement("vrr-capital-view");
+      if (effectiveConfig.universe) {
+        vrrEl.setAttribute("config", JSON.stringify({ universe: effectiveConfig.universe, limit: effectiveConfig.limit || 30 }));
+      }
+      gridContent.appendChild(vrrEl);
+      gridItem.appendChild(gridContent);
+      gridEl.appendChild(gridItem);
+      continue;
+    }
+    // Special handling for Momentum Watchlist
+    if ((panelConfig.type as string) === "watchlist-momentum") {
+      const wlEl = document.createElement("watchlist-momentum-panel");
+      gridContent.appendChild(wlEl);
+      gridItem.appendChild(gridContent);
+      gridEl.appendChild(gridItem);
+      continue;
+    }
+    // Special handling for Compounding Discount Monitor
+    if ((panelConfig.type as string) === "compounding-discount-monitor") {
+      const cdmEl = document.createElement("compounding-discount-monitor");
+      if (effectiveConfig.universe) {
+        cdmEl.setAttribute("config", JSON.stringify({ universe: effectiveConfig.universe, limit: effectiveConfig.limit || 30 }));
+      }
+      gridContent.appendChild(cdmEl);
+      gridItem.appendChild(gridContent);
+      gridEl.appendChild(gridItem);
+      continue;
+    }
     if (altDataMap[panelConfig.type as string]) {
       const altEl = document.createElement(altDataMap[panelConfig.type as string]);
       // Pass ticker for ticker-specific panels
@@ -621,6 +670,18 @@ function renderRecipePicker() {
     { id: "company-news", title: "📰 Company News", description: "Recent news headlines from Finnhub", category: "alt" },
   ];
   
+  // Momentum Watchlist
+  const watchlistTypes = [
+    { id: "watchlist-momentum", title: "📊 Momentum Watchlist", description: "Robinhood-style watchlist: chart + S&P baseline, timeframe ribbons, streak sort, correlation matrix", category: "watchlist" },
+  ];
+
+  // Value Compression Map
+  const valueTypes = [
+    { id: "value-compression-map", title: "🗺️ Value Compression Map", description: "Stability vs compression bubble chart with IVRV coloring", category: "value" },
+    { id: "vrr-capital-view", title: "📊 VRR Capital Deployment", description: "Thesis realization gauges + Kelly/IRR simulator", category: "value" },
+    { id: "compounding-discount-monitor", title: "🏛️ Compounding Discount Monitor", description: "Getty Oil-inspired P/B vs CAGR quadrant + BVPS trail", category: "value" },
+  ];
+  
   // Investment Archetype panel types
   const archetypeTypes = [
     { id: "compounders", title: "🏔️ Compounders", description: "Steady growth, high ROIC, reinvestment works", category: "archetype" },
@@ -632,7 +693,7 @@ function renderRecipePicker() {
     { id: "antifragile", title: "🛡️ Anti-Fragile", description: "Resilient through cycles", category: "archetype" },
   ];
   
-  const allTypes = [...builtInTypes, ...torqueTypes, ...aiTypes, ...archetypeTypes, ...altDataTypes];
+  const allTypes = [...builtInTypes, ...torqueTypes, ...aiTypes, ...archetypeTypes, ...altDataTypes, ...valueTypes, ...watchlistTypes];
 
   picker.innerHTML = `
     <div style="margin-bottom: 1.25rem;">
@@ -647,6 +708,18 @@ function renderRecipePicker() {
       </div>
     </div>
     
+    <div style="margin-bottom: 1.25rem;">
+      <div style="font-size: 0.8rem; font-weight: 600; color: #38bdf8; margin-bottom: 0.5rem; text-transform: uppercase;">📊 Momentum Watchlist</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem;">
+        ${watchlistTypes.map(t => `
+          <div class="recipe-card" data-type="${t.id}" style="cursor: pointer; border-color: rgba(56, 189, 248, 0.4);">
+            <span class="recipe-card-title">${t.title}</span>
+            <span style="font-size: 0.75rem; color: #64748b;">${t.description}</span>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+
     <div style="margin-bottom: 1.25rem;">
       <div style="font-size: 0.8rem; font-weight: 600; color: #06b6d4; margin-bottom: 0.5rem; text-transform: uppercase;">📊 Alternative Data</div>
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem;">
@@ -695,8 +768,20 @@ function renderRecipePicker() {
       </div>
     </div>
     
+    <div style="margin-bottom: 1.25rem;">
+      <div style="font-size: 0.8rem; font-weight: 600; color: #10b981; margin-bottom: 0.5rem; text-transform: uppercase;">🗺️ Value Compression</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem;">
+        ${valueTypes.map(t => `
+          <div class="recipe-card" data-type="${t.id}" style="cursor: pointer; border-color: rgba(16, 185, 129, 0.3);">
+            <span class="recipe-card-title">${t.title}</span>
+            <span style="font-size: 0.75rem; color: #64748b;">${t.description}</span>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+    
     <div>
-      <div style="font-size: 0.8rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.5rem; text-transform: uppercase;">Pre-built Recipes</div>
+      <div style="font-size: 0.8rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.5rem; text-transform: uppercase;">Data Panels</div>
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem;">
         ${FINANCE_RECIPES_REGISTRY.entries.map(r => `
           <div class="recipe-card" data-recipe="${r.id}" style="cursor: pointer;">
@@ -789,7 +874,16 @@ function switchTab(tabName: string) {
 function navigateToStock(ticker: string) {
   selectedTicker = ticker;
   currentView = "stock-detail";
+
+  // Remember where user was so we can restore when closing
+  (window as any).__dashboardScrollY = window.scrollY;
+
   renderCurrentView();
+
+  // Scroll to top so drawer header is visible at user's current viewport
+  // The drawer sits inline, so we need the page at top for the drawer to be in view
+  window.scrollTo({ top: 0, behavior: "smooth" as ScrollBehavior });
+
   // Update URL without reload
   history.pushState({ view: "stock", ticker }, "", `#/stock/${ticker}`);
 }
@@ -798,6 +892,13 @@ function navigateToDashboard() {
   selectedTicker = null;
   currentView = "dashboard";
   renderCurrentView();
+
+  // Restore previous scroll position if we had one
+  const prevY = (window as any).__dashboardScrollY;
+  if (typeof prevY === "number") {
+    window.scrollTo({ top: prevY, behavior: "smooth" as ScrollBehavior });
+  }
+
   history.pushState({ view: "dashboard" }, "", "#/");
 }
 
@@ -806,15 +907,13 @@ function renderCurrentView() {
   const stockDetailContainer = document.getElementById("stock-detail-container");
   
   if (currentView === "stock-detail" && selectedTicker) {
-    dashboardGrid?.classList.add("hidden");
     stockDetailContainer?.classList.remove("hidden");
-    
+
     // Render or update stock detail view
     if (stockDetailContainer) {
       stockDetailContainer.innerHTML = `<stock-detail-view ticker="${selectedTicker}"></stock-detail-view>`;
     }
   } else {
-    dashboardGrid?.classList.remove("hidden");
     stockDetailContainer?.classList.add("hidden");
     renderDashboard();
   }
@@ -874,7 +973,36 @@ document.addEventListener("DOMContentLoaded", () => {
   
   document.getElementById("universe-apply")?.addEventListener("click", applyUniverse);
   document.getElementById("universe-clear")?.addEventListener("click", clearUniverse);
-  
+
+  // Universe preset buttons (Default, S&P 500)
+  const universeDropdown = document.getElementById("universe-dropdown");
+  universeDropdown?.addEventListener("click", async (e) => {
+    const btn = (e.target as HTMLElement).closest(".universe-preset-btn");
+    if (!btn) return;
+    const preset = (btn as HTMLButtonElement).getAttribute("data-preset");
+    if (!preset) return;
+    const apiBase = (window as any).VITE_API_URL || "http://localhost:8000";
+    try {
+      (btn as HTMLButtonElement).disabled = true;
+      const r = await fetch(`${apiBase}/api/universe?preset=${encodeURIComponent(preset)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      const tickers = data.tickers as string[] | undefined;
+      if (tickers && tickers.length > 0) {
+        globalUniverse = tickers;
+        saveGlobalUniverse();
+        renderDashboard();
+        toggleUniverseDropdown(false);
+      } else if (preset === "sp500") {
+        console.warn("S&P 500 list empty. Refresh it in Settings (Data) or run POST /api/universe/refresh with FMP key.");
+      }
+    } catch (err) {
+      console.error("Universe preset failed:", err);
+    } finally {
+      (btn as HTMLButtonElement).disabled = false;
+    }
+  });
+
   // Close dropdown on outside click
   document.addEventListener("click", (e) => {
     const control = document.querySelector(".universe-control");
@@ -937,4 +1065,11 @@ document.addEventListener("DOMContentLoaded", () => {
       navigateToStock(e.detail.ticker);
     }
   }) as EventListener);
+
+  // Escape key to close drawer
+  document.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Escape" && currentView === "stock-detail") {
+      navigateToDashboard();
+    }
+  });
 });

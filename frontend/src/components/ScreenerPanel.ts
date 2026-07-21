@@ -28,7 +28,7 @@ export class ScreenerPanel extends HTMLElement {
     filters: [],
     rank_by: "pe_ratio",
     rank_order: "ASC",
-    columns: ["ticker", "price", "pe_ratio", "gross_margin", "debt_to_equity"],
+    columns: ["ticker", "price", "pe_ratio", "ev_to_fcf", "gross_margin", "debt_to_equity"],
     formulas: [],
     limit: 20,
   };
