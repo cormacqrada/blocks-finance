@@ -452,10 +452,9 @@ def compute_all_formulas(
     ).fetchall()
 
     from datetime import datetime
-    from app.db import upsert_row
+    from app.db import bulk_upsert
 
     engine = FormulaEngine()
-    computed_count = 0
 
     # Build query for fundamentals
     where_clause = ""
@@ -470,6 +469,13 @@ def compute_all_formulas(
     ).fetchall()
     columns = [desc[0] for desc in conn.description]
 
+    # Accumulate all computed metric rows and bulk-write at the end.
+    # Was: one upsert_row call per (ticker × formula) — N network round-trips
+    # on DuckLake that made /ingest/recompute time out at >120s for just 9
+    # tickers. Now: one bulk_upsert transaction for the whole set.
+    metric_rows: list[dict] = []
+    now_dt = datetime.now()
+
     for row in rows:
         data = dict(zip(columns, row))
         ticker = data["ticker"]
@@ -482,17 +488,17 @@ def compute_all_formulas(
             result = engine.evaluate(expression, data, row_computed)
 
             if result.value is not None:
-                # Store computed value
-                upsert_row(conn, "computed_metrics", {
+                metric_rows.append({
                     "ticker": ticker,
                     "as_of": as_of,
                     "metric_name": formula_name,
                     "formula_id": formula_id,
                     "value": result.value,
-                    "computed_at": datetime.now(),
-                }, ["ticker", "as_of", "metric_name"])
+                    "computed_at": now_dt,
+                })
                 # Make available for dependent formulas
                 row_computed[formula_name.lower().replace(" ", "_")] = result.value
-                computed_count += 1
 
-    return computed_count
+    if metric_rows:
+        bulk_upsert(conn, "computed_metrics", metric_rows, ["ticker", "as_of", "metric_name"])
+    return len(metric_rows)
