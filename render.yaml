@@ -47,7 +47,7 @@ services:
   - type: static
     name: blocks-finance-frontend
     rootDir: frontend
-    buildCommand: npm install pnpm@latest --prefix .pnpm-store && ./node_modules/.bin/pnpm install --frozen-lockfile && ./node_modules/.bin/pnpm run build
+    buildCommand: npm install pnpm@latest --prefix .pnpm-store && ./.pnpm-store/node_modules/.bin/pnpm install --frozen-lockfile && ./.pnpm-store/node_modules/.bin/pnpm run build
     publishPath: dist
     autoDeploy: true
     envVars:
