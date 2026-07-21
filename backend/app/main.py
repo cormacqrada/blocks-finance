@@ -2816,20 +2816,30 @@ async def ingest_from_fmp(payload: Optional[dict] = None) -> dict:
     if not fundamentals:
         return {"ingested": 0, "message": "No data fetched. Check API key and tickers."}
     
-    # Upsert into database
-    conn = get_connection()
-    for row in fundamentals:
-        upsert_row(conn, "fundamentals", row, ["ticker", "as_of"])
-    
-    # Recompute Greenblatt scores
+    # Upsert into database + recompute derived tables. Wrapped so the client
+    # sees the actual exception instead of a bare FastAPI 500.
+    import traceback as _tb
     ingested_tickers = [r["ticker"] for r in fundamentals]
-    _recompute_greenblatt(conn, ingested_tickers)
-    
-    # Compute formula metrics
-    compute_all_formulas(conn, ingested_tickers)
-    
-    # Compute value compression scores
-    _compute_value_compression(conn, ingested_tickers)
+    try:
+        conn = get_connection()
+        for row in fundamentals:
+            upsert_row(conn, "fundamentals", row, ["ticker", "as_of"])
+
+        # Recompute Greenblatt scores
+        _recompute_greenblatt(conn, ingested_tickers)
+
+        # Compute formula metrics
+        compute_all_formulas(conn, ingested_tickers)
+
+        # Compute value compression scores
+        _compute_value_compression(conn, ingested_tickers)
+    except Exception as e:
+        return {
+            "ingested": 0,
+            "tickers": ingested_tickers,
+            "error": f"{type(e).__name__}: {e}",
+            "traceback": _tb.format_exc().splitlines()[-10:],
+        }
     
     return {
         "ingested": len(fundamentals),
