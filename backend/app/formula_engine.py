@@ -66,6 +66,9 @@ SAFE_FUNCTIONS: Dict[str, Callable] = {
 FUNDAMENTALS_FIELDS: Set[str] = {
     "ticker",
     "as_of",
+    "company_name",
+    "sector",
+    "industry",
     "ebit",
     "enterprise_value",
     "net_working_capital",
@@ -90,6 +93,7 @@ FUNDAMENTALS_FIELDS: Set[str] = {
     "pb_ratio",
     "ps_ratio",
     "ev_to_ebitda",
+    "ev_to_fcf",
     "dividend_yield",
     "payout_ratio",
     "eps",
@@ -447,6 +451,9 @@ def compute_all_formulas(
         "SELECT id, name, expression FROM formula_definitions ORDER BY category"
     ).fetchall()
 
+    from datetime import datetime
+    from app.db import upsert_row
+
     engine = FormulaEngine()
     computed_count = 0
 
@@ -476,15 +483,14 @@ def compute_all_formulas(
 
             if result.value is not None:
                 # Store computed value
-                conn.execute(
-                    """
-                    INSERT INTO computed_metrics (ticker, as_of, metric_name, formula_id, value)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT (ticker, as_of, metric_name) DO UPDATE SET
-                        formula_id = EXCLUDED.formula_id, value = EXCLUDED.value, computed_at = now()
-                    """,
-                    (ticker, as_of, formula_name, formula_id, result.value),
-                )
+                upsert_row(conn, "computed_metrics", {
+                    "ticker": ticker,
+                    "as_of": as_of,
+                    "metric_name": formula_name,
+                    "formula_id": formula_id,
+                    "value": result.value,
+                    "computed_at": datetime.now(),
+                }, ["ticker", "as_of", "metric_name"])
                 # Make available for dependent formulas
                 row_computed[formula_name.lower().replace(" ", "_")] = result.value
                 computed_count += 1

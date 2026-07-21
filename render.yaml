@@ -1,0 +1,42 @@
+# Render service definition (Infrastructure-as-Code).
+# Deploy: render.com → New → Web Service → connect repo → Render reads this file,
+# OR use the dashboard and it'll pick this up automatically.
+#
+# Secrets (sync: false) are entered in the Render dashboard Environment tab —
+# they are NOT read from the repo. Set them once after first deploy:
+#   DUCKLAKE_ENABLED=1
+#   R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT
+#   PG_CATALOG_URL  (Neon connection string, e.g. postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require)
+#   FMP_API_KEY / FRED_API_KEY / FINNHUB_API_KEY  (optional — ingestion skips sources without keys)
+
+services:
+  - type: web
+    name: blocks-finance-api
+    runtime: docker
+    plan: free              # 512MB / 0.1 CPU; spins down after 15min idle, ~50s cold start
+    region: oregon          # closest Render region to Neon us-east
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DUCKLAKE_ENABLED
+        value: "1"
+      # Secrets below — set values in the Render dashboard (sync: false keeps them out of git).
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: PG_CATALOG_URL
+        sync: false
+      - key: FMP_API_KEY
+        sync: false
+      - key: FRED_API_KEY
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: EDGAR_IDENTITY
+        sync: false
