@@ -473,7 +473,7 @@ def _compute_value_compression(conn: duckdb.DuckDBPyConnection, universe: Option
     IVRV = intrinsic value realization velocity proxies
     """
     if universe:
-        universe_filter = "WHERE f.ticker IN (%s)" % ",".join("?" for _ in universe)
+        universe_filter = "WHERE ticker IN (%s)" % ",".join("?" for _ in universe)
         params: List[Any] = list(universe)
     else:
         universe_filter = ""
@@ -726,7 +726,7 @@ def _compute_vrr_positions(conn: duckdb.DuckDBPyConnection, universe: Optional[L
     Action = quadrant assignment based on spread + velocity.
     """
     if universe:
-        universe_filter = "WHERE f.ticker IN (%s)" % ",".join("?" for _ in universe)
+        universe_filter = "WHERE ticker IN (%s)" % ",".join("?" for _ in universe)
         params: List[Any] = list(universe)
     else:
         universe_filter = ""
@@ -1133,7 +1133,7 @@ def _compute_compounding_discount(conn: duckdb.DuckDBPyConnection, universe: Opt
     Quadrant = classification based on CAGR + P/B intersection
     """
     if universe:
-        universe_filter = "WHERE f.ticker IN (%s)" % ",".join("?" for _ in universe)
+        universe_filter = "WHERE ticker IN (%s)" % ",".join("?" for _ in universe)
         params: List[Any] = list(universe)
     else:
         universe_filter = ""
