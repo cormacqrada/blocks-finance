@@ -248,6 +248,26 @@ async def run_all(
                 batch_size=batch_size,
             )
 
+        # 6. Recompute derived tables once after all raw data is loaded.
+        # /ingest/fmp now only bulk-upserts fundamentals; the Greenblatt/formula/
+        # value-compression recomputes were moved here so a full run pays for
+        # them exactly once instead of once per 25-ticker batch. Runs inside the
+        # async-with so it reuses the same client.
+        recompute_universe = tickers if len(tickers) < 1500 else None
+        print("Recomputing derived tables (greenblatt, formulas, value compression)...")
+        try:
+            resp = await client.post(
+                "/ingest/recompute",
+                json={"universe": recompute_universe} if recompute_universe else {},
+                timeout=600.0,
+            )
+            if resp.is_success:
+                print(f"  ✅ recompute: {resp.json()}")
+            else:
+                print(f"  ❌ recompute: HTTP {resp.status_code} - {resp.text[:200]}")
+        except Exception as exc:
+            print(f"  ❌ recompute: {type(exc).__name__}: {exc}")
+
     print("Ingestion run finished.")
 
 

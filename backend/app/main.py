@@ -101,7 +101,7 @@ class QueryGreenblattInput(TypedDict, total=False):
 
 # Connection layer, schema, and seeding live in dedicated modules so this
 # file stays a thin route layer. See app/db.py, app/schema.py, app/seed.py.
-from app.db import get_connection, upsert_row, is_ducklake
+from app.db import get_connection, upsert_row, bulk_upsert, is_ducklake
 from app.schema import CONFLICT_KEYS
 
 
@@ -2817,23 +2817,16 @@ async def ingest_from_fmp(payload: Optional[dict] = None) -> dict:
     if not fundamentals:
         return {"ingested": 0, "message": "No data fetched. Check API key and tickers."}
     
-    # Upsert into database + recompute derived tables. Wrapped so the client
-    # sees the actual exception instead of a bare FastAPI 500.
+    # Bulk upsert into database. Recomputes are now deferred to
+    # POST /ingest/recompute so a batch of fundamentals only pays for one
+    # network round-trip (was: one upsert_row call per ticker + three
+    # full-table recomputes per batch). Wrapped so the client sees the
+    # actual exception instead of a bare FastAPI 500.
     import traceback as _tb
     ingested_tickers = [r["ticker"] for r in fundamentals]
     try:
         conn = get_connection()
-        for row in fundamentals:
-            upsert_row(conn, "fundamentals", row, ["ticker", "as_of"])
-
-        # Recompute Greenblatt scores
-        _recompute_greenblatt(conn, ingested_tickers)
-
-        # Compute formula metrics
-        compute_all_formulas(conn, ingested_tickers)
-
-        # Compute value compression scores
-        _compute_value_compression(conn, ingested_tickers)
+        bulk_upsert(conn, "fundamentals", fundamentals, ["ticker", "as_of"])
     except Exception as e:
         return {
             "ingested": 0,
@@ -2841,10 +2834,11 @@ async def ingest_from_fmp(payload: Optional[dict] = None) -> dict:
             "error": f"{type(e).__name__}: {e}",
             "traceback": _tb.format_exc().splitlines()[-10:],
         }
-    
+
     return {
         "ingested": len(fundamentals),
         "tickers": ingested_tickers,
+        "note": "recompute deferred — call POST /ingest/recompute after all batches",
     }
 
 
@@ -2871,9 +2865,10 @@ async def ingest_from_yfinance(payload: Optional[dict] = None) -> dict:
     include_earnings = payload.get("include_earnings", True)
 
     conn = get_connection()
-    price_count = 0
-    earnings_count = 0
-    securities_count = 0
+    price_rows: list[dict] = []
+    earnings_rows: list[dict] = []
+    securities_rows: list[dict] = []
+    now_dt = datetime.now()
     errors: list[dict] = []
     
     for ticker in tickers:
@@ -2883,23 +2878,22 @@ async def ingest_from_yfinance(payload: Optional[dict] = None) -> dict:
             # Get company info
             info = stock.info or {}
             if info.get("shortName") or info.get("longName"):
-                upsert_row(conn, "securities", {
+                securities_rows.append({
                     "ticker": ticker,
                     "company_name": info.get("shortName") or info.get("longName", ""),
                     "sector": info.get("sector", ""),
                     "industry": info.get("industry", ""),
                     "exchange": info.get("exchange", ""),
                     "country": info.get("country", ""),
-                    "updated_at": datetime.now(),
-                }, ["ticker"])
-                securities_count += 1
+                    "updated_at": now_dt,
+                })
             
             # Get price history
             hist = stock.history(period=period)
             if not hist.empty:
                 for date_idx, row in hist.iterrows():
                     date_str = date_idx.strftime("%Y-%m-%d")
-                    upsert_row(conn, "price_history", {
+                    price_rows.append({
                         "ticker": ticker,
                         "date": date_str,
                         "open": float(row.get("Open", 0)),
@@ -2908,9 +2902,8 @@ async def ingest_from_yfinance(payload: Optional[dict] = None) -> dict:
                         "close": float(row.get("Close", 0)),
                         "adj_close": float(row.get("Close", 0)),  # yfinance returns adjusted by default
                         "volume": int(row.get("Volume", 0)),
-                        "fetched_at": datetime.now(),
-                    }, ["ticker", "date"])
-                    price_count += 1
+                        "fetched_at": now_dt,
+                    })
             else:
                 errors.append({"ticker": ticker, "stage": "history",
                                "error": "empty price history (yfinance may be blocked from this network)"})
@@ -2926,15 +2919,14 @@ async def ingest_from_yfinance(payload: Optional[dict] = None) -> dict:
                                 date_str = date_idx.strftime("%Y-%m-%d")
                             else:
                                 date_str = str(date_idx)
-                            upsert_row(conn, "earnings_history", {
+                            earnings_rows.append({
                                 "ticker": ticker,
                                 "date": date_str,
                                 "period": "Q",
                                 "eps": float(row.get("Earnings", 0)) if row.get("Earnings") else None,
                                 "revenue": float(row.get("Revenue", 0)) if row.get("Revenue") else None,
-                                "fetched_at": datetime.now(),
-                            }, ["ticker", "date", "period"])
-                            earnings_count += 1
+                                "fetched_at": now_dt,
+                            })
                 except Exception as ee:
                     errors.append({"ticker": ticker, "stage": "earnings",
                                    "error": f"{type(ee).__name__}: {ee}"})
@@ -2944,6 +2936,11 @@ async def ingest_from_yfinance(payload: Optional[dict] = None) -> dict:
             errors.append({"ticker": ticker, "stage": "ticker",
                            "error": f"{type(e).__name__}: {e}"})
             continue
+
+    # Bulk-write every table in three transactions instead of one call per row.
+    securities_count = bulk_upsert(conn, "securities", securities_rows, ["ticker"]) if securities_rows else 0
+    price_count = bulk_upsert(conn, "price_history", price_rows, ["ticker", "date"]) if price_rows else 0
+    earnings_count = bulk_upsert(conn, "earnings_history", earnings_rows, ["ticker", "date", "period"]) if earnings_rows else 0
     
     return {
         "tickers": tickers,
@@ -3000,6 +2997,11 @@ async def ingest_fmp_prices(payload: Optional[dict] = None) -> dict:
     conn = get_connection()
     price_count = 0
     errors: list[dict] = []
+    # Accumulate all bars across tickers and write them in one bulk upsert at
+    # the end. This was previously one upsert_row call per daily bar (hundreds
+    # of network round-trips per ticker on DuckLake); now it's one transaction
+    # for the whole request.
+    price_rows: list[dict] = []
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for ticker in tickers:
@@ -3020,7 +3022,7 @@ async def ingest_fmp_prices(payload: Optional[dict] = None) -> dict:
                     d = bar.get("date")
                     if not d:
                         continue
-                    upsert_row(conn, "price_history", {
+                    price_rows.append({
                         "ticker": ticker,
                         "date": d,
                         "open": _safe_float(bar.get("open")),
@@ -3031,14 +3033,17 @@ async def ingest_fmp_prices(payload: Optional[dict] = None) -> dict:
                         "volume": int(_safe_float(bar.get("volume"), 0)),
                         "data_source": "fmp",
                         "fetched_at": today,
-                    }, ["ticker", "date"])
-                    price_count += 1
+                    })
             except Exception as e:
                 errors.append({"ticker": ticker,
                                "error": f"{type(e).__name__}: {e}"})
                 continue
             # Light pacing to respect FMP rate limits (starter ~250 req/min).
             await asyncio.sleep(0.15)
+
+    if price_rows:
+        bulk_upsert(conn, "price_history", price_rows, ["ticker", "date"])
+        price_count = len(price_rows)
 
     return {
         "tickers": tickers,
@@ -3213,9 +3218,10 @@ async def ingest_from_finnhub(payload: Optional[dict] = None) -> dict:
     include_recommendations = payload.get("include_recommendations", True)
 
     conn = get_connection()
-    news_count = 0
-    rec_count = 0
-    
+    news_rows: list[dict] = []
+    rec_rows: list[dict] = []
+    now_dt = datetime.now()
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         for ticker in tickers:
             try:
@@ -3234,7 +3240,7 @@ async def ingest_from_finnhub(payload: Optional[dict] = None) -> dict:
                         news_items = news_resp.json()
                         for item in news_items[:10]:  # Limit per ticker
                             news_id = f"{ticker}_{item.get('id', item.get('datetime', ''))}"
-                            upsert_row(conn, "company_news", {
+                            news_rows.append({
                                 "id": news_id,
                                 "ticker": ticker,
                                 "datetime": datetime.fromtimestamp(item.get("datetime", 0)).isoformat() if item.get("datetime") else None,
@@ -3243,9 +3249,8 @@ async def ingest_from_finnhub(payload: Optional[dict] = None) -> dict:
                                 "source": item.get("source", ""),
                                 "url": item.get("url", ""),
                                 "data_source": "finnhub",
-                                "fetched_at": datetime.now(),
-                            }, ["id"])
-                            news_count += 1
+                                "fetched_at": now_dt,
+                            })
                 
                 if include_recommendations:
                     # Analyst recommendations
@@ -3258,7 +3263,7 @@ async def ingest_from_finnhub(payload: Optional[dict] = None) -> dict:
                     if rec_resp.status_code == 200:
                         recs = rec_resp.json()
                         for rec in recs[:4]:  # Last 4 quarters
-                            upsert_row(conn, "analyst_recommendations", {
+                            rec_rows.append({
                                 "ticker": ticker,
                                 "date": rec.get("period", ""),
                                 "strong_buy": rec.get("strongBuy", 0),
@@ -3267,13 +3272,16 @@ async def ingest_from_finnhub(payload: Optional[dict] = None) -> dict:
                                 "sell": rec.get("sell", 0),
                                 "strong_sell": rec.get("strongSell", 0),
                                 "data_source": "finnhub",
-                                "fetched_at": datetime.now(),
-                            }, ["ticker", "date"])
-                            rec_count += 1
+                                "fetched_at": now_dt,
+                            })
                             
             except Exception as e:
                 print(f"Warning: Finnhub error for {ticker}: {e}")
                 continue
+
+    # Bulk-write everything in two transactions instead of one call per row.
+    news_count = bulk_upsert(conn, "company_news", news_rows, ["id"]) if news_rows else 0
+    rec_count = bulk_upsert(conn, "analyst_recommendations", rec_rows, ["ticker", "date"]) if rec_rows else 0
     
     return {
         "data_source": "finnhub",
@@ -3332,8 +3340,9 @@ async def ingest_from_fred(payload: Optional[dict] = None) -> dict:
         series_ids = [series_ids]
     
     conn = get_connection()
-    record_count = 0
-    
+    macro_rows: list[dict] = []
+    now_dt = datetime.now()
+
     start_date = (datetime.now() - timedelta(days=years * 365)).strftime("%Y-%m-%d")
     
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -3359,21 +3368,21 @@ async def ingest_from_fred(payload: Optional[dict] = None) -> dict:
                         value_str = obs.get("value", ".")
                         if value_str == ".":  # FRED uses "." for missing
                             continue
-                            
-                        upsert_row(conn, "macro_indicators", {
+                        macro_rows.append({
                             "series_id": series_id,
                             "date": obs.get("date", ""),
                             "value": float(value_str),
                             "series_name": series_info[0],
                             "units": series_info[1],
                             "data_source": "fred",
-                            "fetched_at": datetime.now(),
-                        }, ["series_id", "date"])
-                        record_count += 1
+                            "fetched_at": now_dt,
+                        })
                         
             except Exception as e:
                 print(f"Warning: FRED error for {series_id}: {e}")
                 continue
+
+    record_count = bulk_upsert(conn, "macro_indicators", macro_rows, ["series_id", "date"]) if macro_rows else 0
     
     return {
         "data_source": "fred",
@@ -3468,6 +3477,47 @@ async def run_all_ingestion(payload: Optional[dict] = None) -> dict:
         lambda: run_scheduled_ingestion(tickers=tickers),
     )
     return {"status": "ok", "message": "Ingestion run_all completed (check logs for per-source results)."}
+
+
+@app.post("/ingest/recompute")
+async def recompute_derived_tables(payload: Optional[dict] = None) -> dict:
+    """Recompute all derived tables from fundamentals in one pass.
+
+    Greenblatt scores, formula metrics, and value compression scores used to
+    be recomputed inside /ingest/fmp on every batch of 25 tickers — three
+    full-table scans per batch. Now that /ingest/fmp only bulk-upserts raw
+    fundamentals, call this endpoint ONCE after all ingestion batches for a
+    run are done (see app/run_ingestion.py).
+
+    Input: { "universe": ["AAPL", ...] }  # optional; defaults to all tickers
+    """
+    import traceback as _tb
+    payload = payload or {}
+    universe = payload.get("universe")
+    if isinstance(universe, str):
+        universe = [universe] if universe.strip() else None
+    elif isinstance(universe, list):
+        universe = [u for u in universe if isinstance(u, str) and u.strip()] or None
+
+    try:
+        conn = get_connection()
+        greenblatt_count = _recompute_greenblatt(conn, universe)
+        formula_count = compute_all_formulas(conn, universe)
+        vc_count = _compute_value_compression(conn, universe)
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": f"{type(e).__name__}: {e}",
+            "traceback": _tb.format_exc().splitlines()[-10:],
+        }
+
+    return {
+        "status": "ok",
+        "universe": universe,
+        "greenblatt_scores": greenblatt_count,
+        "computed_metrics": formula_count,
+        "value_compression_scores": vc_count,
+    }
 
 
 @app.get("/api/ingestion/schedule")

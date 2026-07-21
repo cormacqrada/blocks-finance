@@ -282,11 +282,155 @@ def upsert_rows(
     rows: List[Dict[str, Any]],
     conflict_keys: List[str],
 ) -> int:
-    """Upsert many rows. Returns count inserted. Each row is upserted in its
-    own statement (batching MERGE across heterogeneous rows is awkward); this
-    matches the existing per-row ingest pattern."""
-    count = 0
-    for row in rows:
-        upsert_row(conn, table, row, conflict_keys)
-        count += 1
-    return count
+    """Upsert many rows using the set-based bulk_upsert below."""
+    return bulk_upsert(conn, table, rows, conflict_keys)
+
+
+def bulk_upsert(
+    conn: duckdb.DuckDBPyConnection,
+    table: str,
+    rows: List[Dict[str, Any]],
+    conflict_keys: List[str],
+    batch_size: int = 500,
+) -> int:
+    """Upsert many rows in a single transaction with set-based SQL.
+
+    This is the fast path for ingestion: instead of one MERGE/DELETE+INSERT
+    per row (one network round-trip per row on DuckLake), it deletes every
+    conflicting row in one statement and inserts the whole batch with a
+    single multi-row INSERT. N round-trips collapse to ~2.
+
+    Rows may have heterogeneous keys (ingest rows often only set a subset of
+    the table's columns). We union the column superset, NULL-fill missing
+    columns per row, and chunk into `batch_size`-row statements so we never
+    build a SQL literal larger than the engine likes.
+
+    DELETE is keyed on the FULL conflict-key tuple (row-valued IN), so it only
+    removes rows whose (ck1, ck2, ...) tuple matches an incoming row — never
+    unrelated rows that merely share one key value (e.g. it will not wipe
+    every row for a ticker when only a few dates are being upserted). When the
+    incoming batch itself contains duplicate conflict-key tuples, the last
+    occurrence wins (matching per-row upsert semantics) and only one row is
+    inserted per tuple.
+
+    Works on both plain DuckDB and DuckLake (no PK constraints required).
+    Returns the number of rows upserted.
+    """
+    if not rows:
+        return 0
+    if not conflict_keys:
+        raise ValueError("bulk_upsert requires at least one conflict_key")
+
+    # Column superset across all rows (stable order for reproducible SQL).
+    cols: List[str] = []
+    seen = set()
+    for r in rows:
+        for k in r.keys():
+            if k not in seen:
+                seen.add(k)
+                cols.append(k)
+    if not cols:
+        return 0
+
+    # Dedupe incoming rows by conflict-key tuple, last occurrence wins, so a
+    # batch with duplicate keys upserts cleanly instead of producing duplicate
+    # rows (DELETE removes the prior match, INSERT adds exactly one per tuple).
+    ck_idx = [cols.index(k) for k in conflict_keys if k in cols]
+    if ck_idx and len(ck_idx) == len(conflict_keys):
+        deduped: List[Dict[str, Any]] = []
+        order: Dict[tuple, int] = {}
+        for r in rows:
+            key = tuple(r.get(k) for k in conflict_keys)
+            order[key] = len(deduped)
+            deduped.append(r)
+        if len(order) < len(rows):
+            keep = set(order.values())
+            rows = [deduped[i] for i in sorted(keep)]
+
+    # Fast path: when all rows share the same key set we can build a flat
+    # VALUES list. Otherwise NULL-fill to the superset.
+    uniform = all(set(r.keys()) == seen for r in rows)
+
+    # Look up the conflict-key column types once so the DELETE's row-valued
+    # IN-list can cast placeholders to the real column type. Without this,
+    # `?` in a VALUES list defaults to VARCHAR and won't compare against a
+    # DATE/numeric column (BinderException: cannot compare DATE and VARCHAR).
+    ck_types = _column_types(conn, table, conflict_keys)
+
+    total = 0
+    for chunk_start in range(0, len(rows), batch_size):
+        chunk = rows[chunk_start : chunk_start + batch_size]
+        total += _bulk_upsert_chunk(conn, table, chunk, cols, conflict_keys, uniform, ck_types)
+    return total
+
+
+def _column_types(
+    conn: duckdb.DuckDBPyConnection,
+    table: str,
+    conflict_keys: List[str],
+) -> Dict[str, str]:
+    """Return {column: duckdb_type_str} for the given conflict keys."""
+    try:
+        desc = conn.execute(f"DESCRIBE {table}").fetchall()
+        # DESCRIBE rows: (name, type, null, key, default, extra)
+        types = {row[0]: str(row[1]) for row in desc}
+        return {k: types.get(k, "") for k in conflict_keys}
+    except Exception:
+        return {k: "" for k in conflict_keys}
+
+
+def _bulk_upsert_chunk(
+    conn: duckdb.DuckDBPyConnection,
+    table: str,
+    chunk: List[Dict[str, Any]],
+    cols: List[str],
+    conflict_keys: List[str],
+    uniform: bool,
+    ck_types: Dict[str, str],
+) -> int:
+    """One transaction: DELETE rows matching any incoming conflict-key tuple,
+    then INSERT the chunk."""
+    col_names = ", ".join(cols)
+    placeholders_per_row = "(" + ", ".join("?" for _ in cols) + ")"
+    values_clause = ", ".join(placeholders_per_row for _ in chunk)
+
+    # Build the flat parameter list. For uniform rows we read cols directly;
+    # otherwise NULL-fill missing columns so every row has the same arity.
+    flat: List[Any] = []
+    if uniform:
+        for r in chunk:
+            flat.extend(r[c] for c in cols)
+    else:
+        for r in chunk:
+            flat.extend(r.get(c) for c in cols)
+
+    # DELETE only rows whose FULL conflict-key tuple matches an incoming row,
+    # using a row-valued IN-list. This is exact: it never removes a row that
+    # merely shares one key value with an incoming row (which the old per-key
+    # OR approach did, wiping e.g. all rows for a ticker when upserting a few
+    # dates). Each placeholder is cast to the column's real type because `?`
+    # in a VALUES list otherwise defaults to VARCHAR and won't compare against
+    # a DATE/numeric column. DuckDB supports
+    # `(c1, c2) IN (VALUES (CAST(? AS DATE), CAST(? AS BIGINT)), ...)`.
+    ck_cols = "(" + ", ".join(conflict_keys) + ")"
+    def _casted(k: str) -> str:
+        t = ck_types.get(k, "") if ck_types else ""
+        return f"CAST(? AS {t})" if t else "?"
+    tuple_placeholder = "(" + ", ".join(_casted(k) for k in conflict_keys) + ")"
+    tuples_clause = ", ".join(tuple_placeholder for _ in chunk)
+    delete_params: List[Any] = []
+    for r in chunk:
+        delete_params.extend(r.get(k) for k in conflict_keys)
+    delete_sql = f"DELETE FROM {table} WHERE {ck_cols} IN (VALUES {tuples_clause})"
+
+    insert_sql = f"INSERT INTO {table} ({col_names}) VALUES {values_clause}"
+
+    conn.execute("BEGIN")
+    try:
+        conn.execute(delete_sql, delete_params)
+        conn.execute(insert_sql, flat)
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return len(chunk)

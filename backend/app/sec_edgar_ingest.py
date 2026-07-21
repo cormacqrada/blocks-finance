@@ -14,7 +14,7 @@ from typing import List, Tuple
 
 import duckdb
 
-from app.db import upsert_row
+from app.db import bulk_upsert
 
 
 def _ensure_identity() -> None:
@@ -34,7 +34,7 @@ def _ingest_form4_for_tickers(
 
     _ensure_identity()
     date_from = (datetime.now() - timedelta(days=months_back * 31)).strftime("%Y-%m-%d:")
-    count = 0
+    rows: list[dict] = []
 
     for ticker in tickers:
         try:
@@ -86,23 +86,19 @@ def _ingest_form4_for_tickers(
                             prev[4] = remaining
 
                     for (iname, tx_type), (trade_date_str, shares, price, value, remaining) in seen.items():
-                        try:
-                            upsert_row(conn, "insider_transactions", {
-                                "ticker": ticker,
-                                "filing_date": filing_date_str,
-                                "trade_date": trade_date_str,
-                                "insider_name": iname,
-                                "insider_title": insider_title,
-                                "transaction_type": tx_type,
-                                "shares": shares,
-                                "price": price,
-                                "value": value,
-                                "shares_owned_after": remaining,
-                                "data_source": "sec_edgar",
-                            }, ["ticker", "filing_date", "insider_name", "transaction_type"])
-                            count += 1
-                        except Exception:
-                            pass
+                        rows.append({
+                            "ticker": ticker,
+                            "filing_date": filing_date_str,
+                            "trade_date": trade_date_str,
+                            "insider_name": iname,
+                            "insider_title": insider_title,
+                            "transaction_type": tx_type,
+                            "shares": shares,
+                            "price": price,
+                            "value": value,
+                            "shares_owned_after": remaining,
+                            "data_source": "sec_edgar",
+                        })
                 except Exception as e:
                     print(f"Warning: Form 4 parse {ticker}: {e}")
                     continue
@@ -110,7 +106,11 @@ def _ingest_form4_for_tickers(
         except Exception as e:
             print(f"Warning: SEC EDGAR Form 4 {ticker}: {e}")
             continue
-    return count
+
+    # Bulk-write all insider rows in one transaction instead of one call per row.
+    if rows:
+        return bulk_upsert(conn, "insider_transactions", rows, ["ticker", "filing_date", "insider_name", "transaction_type"])
+    return 0
 
 
 # Well-known institutional 13F filers (ticker symbols) to pull holdings from; their holdings populate our institutional_holdings table.
@@ -128,7 +128,7 @@ def _ingest_13f_for_tickers(
     _ensure_identity()
     filers = filer_tickers or DEFAULT_13F_FILERS
     ticker_set = {t.upper() for t in tickers}
-    count = 0
+    rows: list[dict] = []
 
     for filer in filers:
         try:
@@ -168,25 +168,25 @@ def _ingest_13f_for_tickers(
                 value_usd = float(value_thousands) * 1000 if value_thousands is not None else None
                 shares = row.get("SharesPrnAmount")
                 shares_int = int(shares) if shares is not None else None
-                try:
-                    upsert_row(conn, "institutional_holdings", {
-                        "ticker": ticker,
-                        "holder_cik": holder_cik or filer,
-                        "holder_name": holder_name,
-                        "filing_date": filing_date_str,
-                        "report_date": report_date_str,
-                        "shares": shares_int,
-                        "value": value_usd,
-                        "data_source": "sec_edgar",
-                    }, ["ticker", "holder_cik", "report_date"])
-                    count += 1
-                except Exception:
-                    pass
+                rows.append({
+                    "ticker": ticker,
+                    "holder_cik": holder_cik or filer,
+                    "holder_name": holder_name,
+                    "filing_date": filing_date_str,
+                    "report_date": report_date_str,
+                    "shares": shares_int,
+                    "value": value_usd,
+                    "data_source": "sec_edgar",
+                })
             time.sleep(0.12)
         except Exception as e:
             print(f"Warning: SEC EDGAR 13F {filer}: {e}")
             continue
-    return count
+
+    # Bulk-write all holdings in one transaction instead of one call per row.
+    if rows:
+        return bulk_upsert(conn, "institutional_holdings", rows, ["ticker", "holder_cik", "report_date"])
+    return 0
 
 
 def run_sec_edgar_ingestion(

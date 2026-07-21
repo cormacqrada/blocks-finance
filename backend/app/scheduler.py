@@ -96,6 +96,20 @@ def run_scheduled_ingestion(
         except Exception as e:
             print(f"[scheduler] sec_edgar error: {e}")
 
+        # Recompute derived tables once after all raw data is loaded (was
+        # previously done inside /ingest/fmp on every batch).
+        recompute_universe = tickers if len(tickers) < 1500 else None
+        try:
+            r = client.post(
+                "/ingest/recompute",
+                json={"universe": recompute_universe} if recompute_universe else {},
+                timeout=600.0,
+            )
+            if r.is_success:
+                print(f"[scheduler] recompute: {r.json()}")
+        except Exception as e:
+            print(f"[scheduler] recompute error: {e}")
+
 
 def get_scheduler():
     """Create and return an APScheduler instance if scheduling is enabled.
