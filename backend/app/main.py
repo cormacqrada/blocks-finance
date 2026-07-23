@@ -333,68 +333,18 @@ async def compute_greenblatt_scores(payload: Optional[dict] = None) -> dict:
     """MCP-style tool: compute Greenblatt scores from fundamentals into greenblatt_scores.
 
     Input shape (optional): {"universe": string[] | string}.
+    Runs the heavy DELETE+INSERT...SELECT in a background thread so it doesn't
+    block the event loop (DuckDB releases the GIL, so UI requests stay
+    responsive while the compute runs).
     """
-
+    import asyncio
     payload = payload or {}
     universe = payload.get("universe")
-    conn = get_connection()
-
-    # Simple definition:
-    #   earnings_yield      = ebit / enterprise_value
-    #   return_on_capital   = ebit / net_working_capital
-    #
-    # We explicitly treat rows where we cannot compute EY or ROC as "N/A" and
-    # push them to the bottom of the ranking list by using a two-level ORDER BY:
-    #   1) valid rows (both metrics non-null) first
-    #   2) then rows with missing metrics
-
     if isinstance(universe, str):
         universe = [universe]
-
-    if universe:
-        universe_filter = "WHERE f.ticker IN (%s)" % ",".join("?" for _ in universe)
-        params: Iterable[object] = list(universe)
-    else:
-        universe_filter = ""
-        params = []
-
-    # Recompute scores from fundamentals.
-    # When a universe filter is specified, only delete+recompute for those tickers.
-    # When no universe, recompute all (existing behavior).
-    if universe:
-        delete_filter = "WHERE ticker IN (%s)" % ",".join("?" for _ in universe)
-        delete_params: List[object] = list(universe)
-    else:
-        delete_filter = ""
-        delete_params = []
-
-    conn.execute(f"DELETE FROM greenblatt_scores {delete_filter}", delete_params)
-    conn.execute(
-        f"""
-        INSERT INTO greenblatt_scores (ticker, as_of, earnings_yield, return_on_capital, rank)
-        SELECT
-            f.ticker,
-            f.as_of,
-            CASE WHEN f.enterprise_value > 0 THEN f.ebit / f.enterprise_value ELSE NULL END AS earnings_yield,
-            CASE WHEN f.net_working_capital <> 0 THEN f.ebit / f.net_working_capital ELSE NULL END AS return_on_capital,
-            ROW_NUMBER() OVER (
-                ORDER BY
-                    /* valid metrics first (0), missing metrics last (1) */
-                    CASE
-                        WHEN f.enterprise_value <= 0 OR f.net_working_capital = 0 OR f.ebit IS NULL
-                            THEN 1
-                        ELSE 0
-                    END,
-                    /* within valid rows, order by earnings_yield desc */
-                    CASE WHEN f.enterprise_value > 0 THEN f.ebit / f.enterprise_value ELSE -1 END DESC
-            ) AS rank
-        FROM fundamentals f
-        {universe_filter}
-        """,
-        params,
-    )
-
-    count = conn.execute("SELECT COUNT(*) FROM greenblatt_scores").fetchone()[0]
+    conn = get_connection()
+    loop = asyncio.get_event_loop()
+    count = await loop.run_in_executor(None, lambda: _recompute_greenblatt(conn, universe))
     return {"rows": int(count)}
 
 
@@ -653,14 +603,17 @@ async def compute_value_compression(payload: Optional[dict] = None) -> dict:
     """Compute value compression composite scores from fundamentals.
     
     Input (optional): { "universe": ["AAPL", "MSFT"] }
+    Runs in a background thread (run_in_executor) so the event loop stays free.
     """
+    import asyncio
     payload = payload or {}
     universe = payload.get("universe")
     if isinstance(universe, str):
         universe = [universe]
     
     conn = get_connection()
-    count = _compute_value_compression(conn, universe)
+    loop = asyncio.get_event_loop()
+    count = await loop.run_in_executor(None, lambda: _compute_value_compression(conn, universe))
     
     return {"computed_count": count}
 
@@ -856,14 +809,17 @@ async def compute_vrr(payload: Optional[dict] = None) -> dict:
     """Compute VRR positions from value compression scores.
     
     Input (optional): { "universe": ["AAPL", "MSFT"] }
+    Runs in a background thread (run_in_executor) so the event loop stays free.
     """
+    import asyncio
     payload = payload or {}
     universe = payload.get("universe")
     if isinstance(universe, str):
         universe = [universe]
     
     conn = get_connection()
-    count = _compute_vrr_positions(conn, universe)
+    loop = asyncio.get_event_loop()
+    count = await loop.run_in_executor(None, lambda: _compute_vrr_positions(conn, universe))
     
     return {"computed_count": count}
 
@@ -1318,14 +1274,17 @@ async def compute_compounding_discount(payload: Optional[dict] = None) -> dict:
     """Compute compounding discount monitor positions.
     
     Input (optional): { "universe": ["AAPL", "MSFT"] }
+    Runs in a background thread (run_in_executor) so the event loop stays free.
     """
+    import asyncio
     payload = payload or {}
     universe = payload.get("universe")
     if isinstance(universe, str):
         universe = [universe]
     
     conn = get_connection()
-    count = _compute_compounding_discount(conn, universe)
+    loop = asyncio.get_event_loop()
+    count = await loop.run_in_executor(None, lambda: _compute_compounding_discount(conn, universe))
     
     return {"computed_count": count}
 
@@ -1763,14 +1722,17 @@ async def compute_all_metrics(payload: Optional[dict] = None) -> dict:
     """Compute all formula-based metrics and store in computed_metrics table.
     
     Input (optional): {"universe": ["AAPL", "MSFT"]}
+    Runs in a background thread (run_in_executor) so the event loop stays free.
     """
+    import asyncio
     payload = payload or {}
     universe = payload.get("universe")
     if isinstance(universe, str):
         universe = [universe]
     
     conn = get_connection()
-    count = compute_all_formulas(conn, universe)
+    loop = asyncio.get_event_loop()
+    count = await loop.run_in_executor(None, lambda: compute_all_formulas(conn, universe))
     
     return {"computed_count": count}
 
@@ -3521,15 +3483,23 @@ async def recompute_derived_tables(payload: Optional[dict] = None) -> dict:
     elif isinstance(universe, list):
         universe = [u for u in universe if isinstance(u, str) and u.strip()] or None
 
-    try:
+    import asyncio
+    def _run_all_recomputes():
         conn = get_connection()
-        greenblatt_count = _recompute_greenblatt(conn, universe)
-        formula_count = compute_all_formulas(conn, universe)
-        vc_count = _compute_value_compression(conn, universe)
+        gc = _recompute_greenblatt(conn, universe)
+        fc = compute_all_formulas(conn, universe)
+        vc = _compute_value_compression(conn, universe)
         # VRR depends on value_compression scores, so it must run after VC.
         # Compounding discount depends only on fundamentals.
-        vrr_count = _compute_vrr_positions(conn, universe)
-        cdm_count = _compute_compounding_discount(conn, universe)
+        vr = _compute_vrr_positions(conn, universe)
+        cd = _compute_compounding_discount(conn, universe)
+        return gc, fc, vc, vr, cd
+
+    try:
+        loop = asyncio.get_event_loop()
+        greenblatt_count, formula_count, vc_count, vrr_count, cdm_count = (
+            await loop.run_in_executor(None, _run_all_recomputes)
+        )
     except Exception as e:
         return {
             "status": "error",
