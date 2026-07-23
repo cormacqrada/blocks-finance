@@ -436,38 +436,46 @@ async def query_greenblatt_scores(payload: Optional[QueryGreenblattInput] = None
 
     params.append(int(limit))
 
-    # Return only the latest as_of per ticker (avoid duplicate quarters)
+    # Return only the latest as_of per ticker (avoid duplicate quarters), and
+    # join the latest company_name from fundamentals IN THE SAME QUERY.
+    # Previously this did one `SELECT company_name FROM fundamentals WHERE
+    # ticker = ?` per result row (N+1) — N separate network round-trips to the
+    # network-attached DuckLake that made the endpoint take >20s and hang the
+    # single Render worker. Folding it into one JOIN makes it one round-trip.
     rows = conn.execute(
         f"""
-        SELECT ticker, as_of, earnings_yield, return_on_capital, rank
+        SELECT sub.ticker, sub.as_of, sub.earnings_yield, sub.return_on_capital, sub.rank,
+               fn.company_name
         FROM (
             SELECT *,
                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY as_of DESC) AS _rn
             FROM greenblatt_scores
             {where_clause}
         ) sub
-        WHERE _rn = 1
-        ORDER BY rank ASC
+        LEFT JOIN (
+            SELECT ticker, company_name,
+                   ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY as_of DESC) AS _frn
+            FROM fundamentals
+            WHERE company_name IS NOT NULL
+        ) fn ON fn.ticker = sub.ticker AND fn._frn = 1
+        WHERE sub._rn = 1
+        ORDER BY sub.rank ASC
         LIMIT ?
         """,
         params,
     ).fetchall()
 
-    # Also fetch company_name from fundamentals for richer display
-    result_rows = []
-    for r in rows:
-        name_row = conn.execute(
-            "SELECT company_name FROM fundamentals WHERE ticker = ? ORDER BY as_of DESC LIMIT 1",
-            [r[0]],
-        ).fetchone()
-        result_rows.append({
+    result_rows = [
+        {
             "ticker": r[0],
-            "company_name": name_row[0] if name_row else "",
+            "company_name": r[5] if r[5] is not None else "",
             "as_of": str(r[1]),
             "earnings_yield": r[2],
             "return_on_capital": r[3],
             "rank": r[4],
-        })
+        }
+        for r in rows
+    ]
 
     return {"rows": result_rows}
 
