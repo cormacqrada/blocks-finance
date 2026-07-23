@@ -3555,52 +3555,76 @@ async def get_ingestion_schedule() -> dict:
 # ============================================================================
 
 
+@app.get("/api/tickers")
+async def get_tickers() -> dict:
+    """Return the distinct list of tickers that have fundamentals data.
+
+    Lightweight (one SELECT DISTINCT, ~500 small strings) — used by the search
+    combobox preload. Replaces the old preload that ran screen.run with
+    limit:500 + the latest_per_ticker window function, which scanned the whole
+    fundamentals table over the network-attached DuckLake and hung Render's
+    single worker for ~30s on every page load.
+    """
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT ticker FROM fundamentals WHERE ticker IS NOT NULL ORDER BY ticker"
+        ).fetchall()
+    except Exception:
+        rows = []
+    tickers = [r[0] for r in rows if r[0]]
+    return {"tickers": tickers, "count": len(tickers)}
+
+
 @app.get("/api/data_freshness")
 async def get_data_freshness() -> dict:
-    """Get last-refresh timestamps for all data tables."""
+    """Get last-refresh timestamps for all data tables.
+
+    One UNION ALL round-trip instead of the old 14 (MAX + COUNT per table × 7
+    tables) — each was a separate network round-trip to the network-attached
+    DuckLake that collectively hung Render's single worker.
+    """
     conn = get_connection()
-    
-    tables = [
-        ("fundamentals", "as_of", None),
-        ("price_history", "date", "fetched_at"),
-        ("greenblatt_scores", "as_of", None),
-        ("value_compression_scores", "as_of", None),
-        ("vrr_positions", "as_of", None),
-        ("compounding_discount_monitor", "as_of", None),
-        ("computed_metrics", "as_of", "computed_at"),
-    ]
-    
+    # Map result-table-name -> (max_date, count, max_ts)
+    rows_by_table: Dict[str, tuple] = {}
+    try:
+        # Single query: one aggregate per table, UNIONed. Each subquery is
+        # pushable to the lake. NULL::TIMESTAMP aligns the max_ts column arity.
+        result = conn.execute(
+            """
+            SELECT 'fundamentals' AS tbl, MAX(as_of), COUNT(*), NULL::TIMESTAMP FROM fundamentals
+            UNION ALL
+            SELECT 'price_history', MAX(date), COUNT(*), MAX(fetched_at) FROM price_history
+            UNION ALL
+            SELECT 'greenblatt_scores', MAX(as_of), COUNT(*), NULL::TIMESTAMP FROM greenblatt_scores
+            UNION ALL
+            SELECT 'value_compression_scores', MAX(as_of), COUNT(*), NULL::TIMESTAMP FROM value_compression_scores
+            UNION ALL
+            SELECT 'vrr_positions', MAX(as_of), COUNT(*), NULL::TIMESTAMP FROM vrr_positions
+            UNION ALL
+            SELECT 'compounding_discount_monitor', MAX(as_of), COUNT(*), NULL::TIMESTAMP FROM compounding_discount_monitor
+            UNION ALL
+            SELECT 'computed_metrics', MAX(as_of), COUNT(*), MAX(computed_at) FROM computed_metrics
+            """
+        ).fetchall()
+        for r in result:
+            rows_by_table[r[0]] = (r[1], r[2], r[3])
+    except Exception:
+        # Whole UNION fails if any table is missing; fall back to nothing —
+        # the frontend handles errors via cachedFetch (shows cached data).
+        pass
+
     freshness = {}
     overall_latest = None
-    
-    for table, date_col, ts_col in tables:
-        try:
-            # Get latest data date
-            row = conn.execute(f"SELECT MAX({date_col}) FROM {table}").fetchone()
-            latest_date = str(row[0]) if row and row[0] else None
-            
-            # Get latest ingestion/compute timestamp if column exists
-            latest_ts = None
-            if ts_col:
-                ts_row = conn.execute(f"SELECT MAX({ts_col}) FROM {table}").fetchone()
-                latest_ts = str(ts_row[0]) if ts_row and ts_row[0] else None
-            
-            # Get row count
-            cnt = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            
-            entry = {"latest_date": latest_date, "row_count": cnt}
-            if latest_ts:
-                entry["last_ingested"] = latest_ts
-            
-            freshness[table] = entry
-            
-            # Track overall latest date
-            if latest_date:
-                if overall_latest is None or latest_date > overall_latest:
-                    overall_latest = latest_date
-        except Exception:
-            freshness[table] = {"error": "table not found"}
-    
+    for tbl, (max_date, cnt, max_ts) in rows_by_table.items():
+        latest_date = str(max_date) if max_date else None
+        entry = {"latest_date": latest_date, "row_count": int(cnt) if cnt is not None else 0}
+        if max_ts:
+            entry["last_ingested"] = str(max_ts)
+        freshness[tbl] = entry
+        if latest_date and (overall_latest is None or latest_date > overall_latest):
+            overall_latest = latest_date
+
     return {
         "freshness": freshness,
         "last_data_date": overall_latest,

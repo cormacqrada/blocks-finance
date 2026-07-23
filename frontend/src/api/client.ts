@@ -319,6 +319,16 @@ export async function fetchGreenblattScores(params?: {
   return data;
 }
 
+/** Lightweight distinct-ticker list for the search combobox preload.
+ * One SELECT DISTINCT (~500 strings) instead of screen.run limit:500 + the
+ * latest_per_ticker window function that scanned the whole fundamentals table
+ * over the network lake and hung the backend for ~30s on every page load. */
+export async function fetchTickers(): Promise<string[]> {
+  const { data } = await cachedFetch(`${API_BASE_URL}/api/tickers`);
+  const json = data as { tickers?: string[] };
+  return json.tickers || [];
+}
+
 export async function fetchFundamentalsFields(): Promise<{
   fields: string[];
   categories: Record<string, string[]>;

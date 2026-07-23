@@ -5,7 +5,7 @@
  * and instant navigation to stock detail view.
  */
 
-import { fetchScreenData } from "../api/client";
+import { fetchScreenData, fetchTickers } from "../api/client";
 
 export interface SearchResult {
   ticker: string;
@@ -65,11 +65,11 @@ export class SearchCombobox extends HTMLElement {
     if (this.tickersLoaded) return;
     
     try {
-      const result = await fetchScreenData({
-        columns: ["ticker"],
-        limit: 500,
-      });
-      this.allTickers = result.rows.map((r: any) => r.ticker).filter(Boolean);
+      // Lightweight /api/tickers (one SELECT DISTINCT) instead of screen.run
+      // limit:500 + the latest_per_ticker window function, which scanned the
+      // whole fundamentals table over the network lake and hung the backend
+      // for ~30s on every page load.
+      this.allTickers = await fetchTickers();
       this.tickersLoaded = true;
     } catch (e) {
       console.warn("Failed to preload tickers:", e);
