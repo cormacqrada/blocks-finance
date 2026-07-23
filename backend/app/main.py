@@ -101,7 +101,7 @@ class QueryGreenblattInput(TypedDict, total=False):
 
 # Connection layer, schema, and seeding live in dedicated modules so this
 # file stays a thin route layer. See app/db.py, app/schema.py, app/seed.py.
-from app.db import get_connection, upsert_row, bulk_upsert, is_ducklake
+from app.db import get_connection, upsert_row, bulk_upsert, count_duplicate_keys, is_ducklake
 from app.schema import CONFLICT_KEYS
 
 
@@ -157,6 +157,22 @@ async def get_fundamentals() -> dict:
             for r in rows
         ]
     }
+
+
+@app.get("/debug/duplicate_check")
+async def debug_duplicate_check(table: str = "fundamentals", keys: str = "ticker,as_of") -> dict:
+    """Return rows that violate the logical (keys) uniqueness for `table`.
+
+    DuckLake has no PK constraints, so this is the only way to confirm a bulk
+    upsert run didn't silently insert duplicates (e.g. from NULL conflict keys,
+    which never satisfy MERGE MATCHED). Query: ?table=fundamentals&keys=ticker,as_of
+    """
+    conn = get_connection()
+    key_list = [k.strip() for k in keys.split(",") if k.strip()]
+    if not key_list:
+        raise HTTPException(status_code=400, detail="keys required, e.g. ticker,as_of")
+    dupes = count_duplicate_keys(conn, table, key_list)
+    return {"table": table, "keys": key_list, "duplicate_groups": len(dupes), "duplicates": dupes}
 
 
 @app.post("/debug/seed_sample_greenblatt")
@@ -394,15 +410,13 @@ async def query_greenblatt_scores(payload: Optional[QueryGreenblattInput] = None
     limit = payload.get("limit", 20) or 20
     conn = get_connection()
 
-    # Auto-recompute if scores table is stale/empty relative to fundamentals.
-    # This prevents the common scenario where ingestion runs but a partial
-    # compute (e.g. for a single ticker) wiped all scores.
-    score_count = conn.execute("SELECT COUNT(*) FROM greenblatt_scores").fetchone()[0]
-    fund_count = conn.execute(
-        "SELECT COUNT(DISTINCT ticker) FROM fundamentals"
-    ).fetchone()[0]
-    if score_count < fund_count * 0.5:
-        _recompute_greenblatt(conn)
+    # NOTE: do NOT auto-recompute here. A query endpoint must never trigger an
+    # expensive DELETE+INSERT...SELECT over the network-attached DuckLake — on
+    # Render's single worker that blocks every other request (ingest included)
+    # for the duration, which is what made the UI hang and ingest appear broken.
+    # Recompute now happens only via POST /ingest/recompute (called once after
+    # ingestion by run_ingestion.py / the GHA workflow). If the scores table is
+    # empty, this endpoint simply returns an empty list.
 
     params: List[object] = []
     where_clause = ""
