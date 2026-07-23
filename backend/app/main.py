@@ -3526,6 +3526,10 @@ async def recompute_derived_tables(payload: Optional[dict] = None) -> dict:
         greenblatt_count = _recompute_greenblatt(conn, universe)
         formula_count = compute_all_formulas(conn, universe)
         vc_count = _compute_value_compression(conn, universe)
+        # VRR depends on value_compression scores, so it must run after VC.
+        # Compounding discount depends only on fundamentals.
+        vrr_count = _compute_vrr_positions(conn, universe)
+        cdm_count = _compute_compounding_discount(conn, universe)
     except Exception as e:
         return {
             "status": "error",
@@ -3539,6 +3543,8 @@ async def recompute_derived_tables(payload: Optional[dict] = None) -> dict:
         "greenblatt_scores": greenblatt_count,
         "computed_metrics": formula_count,
         "value_compression_scores": vc_count,
+        "vrr_positions": vrr_count,
+        "compounding_discount_monitor": cdm_count,
     }
 
 

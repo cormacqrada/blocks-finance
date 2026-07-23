@@ -249,24 +249,34 @@ async def run_all(
             )
 
         # 6. Recompute derived tables once after all raw data is loaded.
-        # /ingest/fmp now only bulk-upserts fundamentals; the Greenblatt/formula/
-        # value-compression recomputes were moved here so a full run pays for
-        # them exactly once instead of once per 25-ticker batch. Runs inside the
-        # async-with so it reuses the same client.
+        # /ingest/fmp now only bulk-upserts fundamentals; the derived-table
+        # recomputes were moved here so a full run pays for them exactly once
+        # instead of once per 25-ticker batch.
+        #
+        # We call each compute endpoint SEPARATELY (not one /ingest/recompute)
+        # because the five heavy INSERT...SELECT statements over the
+        # network-attached DuckLake collectively exceed Render's ~100s proxy
+        # timeout. Each individual compute fits within the limit, and the
+        # runner's 300s client timeout gives headroom for slow network scans.
         recompute_universe = tickers if len(tickers) < 1500 else None
-        print("Recomputing derived tables (greenblatt, formulas, value compression)...")
-        try:
-            resp = await client.post(
-                "/ingest/recompute",
-                json={"universe": recompute_universe} if recompute_universe else {},
-                timeout=600.0,
-            )
-            if resp.is_success:
-                print(f"  ✅ recompute: {resp.json()}")
-            else:
-                print(f"  ❌ recompute: HTTP {resp.status_code} - {resp.text[:200]}")
-        except Exception as exc:
-            print(f"  ❌ recompute: {type(exc).__name__}: {exc}")
+        recompute_payload = {"universe": recompute_universe} if recompute_universe else {}
+        compute_steps = [
+            ("greenblatt", "/mcp/finance.compute_greenblatt_scores"),
+            ("formulas", "/mcp/formula.compute_all"),
+            ("value_compression", "/mcp/finance.compute_value_compression"),
+            ("vrr", "/mcp/finance.compute_vrr"),
+            ("compounding_discount", "/mcp/finance.compute_compounding_discount"),
+        ]
+        print("Recomputing derived tables (5 steps, each a separate request)...")
+        for step_name, step_url in compute_steps:
+            try:
+                resp = await client.post(step_url, json=recompute_payload, timeout=300.0)
+                if resp.is_success:
+                    print(f"  ✅ {step_name}: {resp.json()}")
+                else:
+                    print(f"  ❌ {step_name}: HTTP {resp.status_code} - {resp.text[:200]}")
+            except Exception as exc:
+                print(f"  ❌ {step_name}: {type(exc).__name__}: {exc}")
 
     print("Ingestion run finished.")
 

@@ -97,18 +97,25 @@ def run_scheduled_ingestion(
             print(f"[scheduler] sec_edgar error: {e}")
 
         # Recompute derived tables once after all raw data is loaded (was
-        # previously done inside /ingest/fmp on every batch).
+        # previously done inside /ingest/fmp on every batch). Call each compute
+        # endpoint separately — the five heavy INSERT...SELECT statements over
+        # the network-attached DuckLake collectively exceed Render's ~100s
+        # proxy timeout, but each individual compute fits within it.
         recompute_universe = tickers if len(tickers) < 1500 else None
-        try:
-            r = client.post(
-                "/ingest/recompute",
-                json={"universe": recompute_universe} if recompute_universe else {},
-                timeout=600.0,
-            )
-            if r.is_success:
-                print(f"[scheduler] recompute: {r.json()}")
-        except Exception as e:
-            print(f"[scheduler] recompute error: {e}")
+        recompute_payload = {"universe": recompute_universe} if recompute_universe else {}
+        for step_name, step_url in [
+            ("greenblatt", "/mcp/finance.compute_greenblatt_scores"),
+            ("formulas", "/mcp/formula.compute_all"),
+            ("value_compression", "/mcp/finance.compute_value_compression"),
+            ("vrr", "/mcp/finance.compute_vrr"),
+            ("compounding_discount", "/mcp/finance.compute_compounding_discount"),
+        ]:
+            try:
+                r = client.post(step_url, json=recompute_payload, timeout=300.0)
+                if r.is_success:
+                    print(f"[scheduler] {step_name}: {r.json()}")
+            except Exception as e:
+                print(f"[scheduler] {step_name} error: {e}")
 
 
 def get_scheduler():
