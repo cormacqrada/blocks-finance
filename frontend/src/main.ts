@@ -981,7 +981,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!btn) return;
     const preset = (btn as HTMLButtonElement).getAttribute("data-preset");
     if (!preset) return;
-    const apiBase = (window as any).VITE_API_URL || "http://localhost:8000";
+    const apiBase = (window as any).VITE_API_URL || "https://blocks-finance.onrender.com";
     try {
       (btn as HTMLButtonElement).disabled = true;
       const r = await fetch(`${apiBase}/api/universe?preset=${encodeURIComponent(preset)}`);

@@ -13,8 +13,10 @@
  * POST mutations (createFormula, saveScreen, compute*) bypass the cache.
  */
 
-// Use environment variable for production, fallback to localhost for dev
-export const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// Backend URL. Defaults to the deployed Render backend so the app works
+// out of the box (no VITE_API_URL config needed). Override with VITE_API_URL
+// (e.g. http://localhost:8000) for local development against a local backend.
+export const API_BASE = import.meta.env.VITE_API_URL || "https://blocks-finance.onrender.com";
 const API_BASE_URL = API_BASE;
 
 // ─── Stale-while-revalidate cache layer ─────────────────────────────────────
