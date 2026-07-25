@@ -1417,9 +1417,9 @@ async def query_compounding_discount_summary(payload: Optional[dict] = None) -> 
         SELECT AVG(bvps_cagr_5yr), AVG(pb_ratio)
         FROM compounding_discount_monitor
         {where_clause}
-        {'AND' if conditions else 'WHERE'} quadrant = 'opportunity'
+        {'AND' if conditions else 'WHERE'} quadrant = ?
         """,
-        params + ['opportunity'] if not conditions else params + ['opportunity'],
+        params + ['opportunity'],
     ).fetchone()
     avg_cagr_opportunity = round(opp_stats[0], 1) if opp_stats and opp_stats[0] else 0
     avg_pb_opportunity = round(opp_stats[1], 2) if opp_stats and opp_stats[1] else 0
@@ -1444,7 +1444,7 @@ async def query_compounding_discount_summary(payload: Optional[dict] = None) -> 
         {where_clause}
         {'AND' if conditions else 'WHERE'} look_through_pb < 0.7
         """,
-        params if not conditions else params,
+        params,
     ).fetchone()[0]
     
     return {

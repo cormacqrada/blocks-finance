@@ -1,13 +1,13 @@
 /**
  * MomentumWatchlistPanel — Robinhood-style Momentum Watchlist
  *
- * Real data from backend /api/price_history/{ticker} (populated by /ingest/yfinance).
+ * Real data from backend /api/price_history/{ticker} (populated by /ingest/fmp_prices).
  * Falls back to seeded simulation when backend has no price history for a ticker.
- * Ticker search uses the same fetchScreenData infrastructure as the main SearchCombobox.
+ * Ticker search uses the lightweight /api/tickers endpoint.
  */
 
 import { Chart, registerables } from "chart.js";
-import { fetchScreenData, fetchPriceHistory, type PricePoint } from "../api/client";
+import { fetchScreenData, fetchPriceHistory, fetchTickers, type PricePoint } from "../api/client";
 Chart.register(...registerables);
 
 const STORAGE_KEY = "blocks-finance-watchlist-v2";
@@ -244,11 +244,10 @@ export class MomentumWatchlistPanel extends HTMLElement {
   private async loadTickers() {
     if (this.tickersLoaded) return;
     try {
-      const result = await fetchScreenData({
-        columns: ["ticker", "price", "pe_ratio", "market_cap"],
-        limit: 500,
-      });
-      this.allTickers    = result.rows as TickerSuggestion[];
+      // Lightweight /api/tickers (one SELECT DISTINCT) instead of screen.run
+      // limit:500 + the latest_per_ticker window function that hung the backend.
+      const tickers = await fetchTickers();
+      this.allTickers    = tickers.map(t => ({ ticker: t }));
       this.tickersLoaded = true;
       this.render(); // refresh suggestions
     } catch { /* non-fatal */ }
@@ -384,7 +383,7 @@ export class MomentumWatchlistPanel extends HTMLElement {
         ctx.font      = "13px system-ui";
         ctx.textAlign = "center";
         ctx.fillText(
-          "No price data — run POST /ingest/yfinance on the backend",
+          "No price data — run ingestion to populate price history",
           canvas.width / 2, canvas.height / 2
         );
       }
@@ -687,7 +686,7 @@ export class MomentumWatchlistPanel extends HTMLElement {
             <span class="wl-chg num" style="color:#475569">—</span>
             <span class="wl-vol num" style="color:#475569">—</span>
             <span class="wl-streak num" style="color:#475569">—</span>
-            <span class="wl-no-data-msg">${this.isLoadingPrices ? "↻ fetching…" : "No price data — run POST /ingest/yfinance"}</span>
+            <span class="wl-no-data-msg">${this.isLoadingPrices ? "↻ fetching…" : "No price data — run ingestion"}</span>
             <div class="wl-row-actions">
               <button class="wl-btn-remove" data-ticker="${entry.ticker}" title="Remove">×</button>
             </div>
