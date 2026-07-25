@@ -91,10 +91,20 @@ export class CompoundingDiscountMonitor extends HTMLElement {
   private async fetchData() {
     try {
       await computeCompoundingDiscount(this.config.universe);
-      const { rows } = await fetchCompoundingDiscountPositions({
-        universe: this.config.universe,
-        limit: this.config.limit || 30,
-      });
+      const { rows } = await fetchCompoundingDiscountPositions(
+        {
+          universe: this.config.universe,
+          limit: this.config.limit || 30,
+        },
+        // SWR: swap in fresh positions + summary and re-render on refetch.
+        async (fresh) => {
+          this.data = fresh.rows;
+          this.summary = await fetchCompoundingDiscountSummary({ universe: this.config.universe });
+          this.renderSummary();
+          this.renderScatter();
+          this.renderInsights();
+        },
+      );
       this.data = rows;
       this.summary = await fetchCompoundingDiscountSummary({ universe: this.config.universe });
 

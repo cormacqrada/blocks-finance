@@ -74,8 +74,11 @@ async function _fetchWithTimeout(url: string, init: RequestInit = {}): Promise<a
  * Stale-while-revalidate fetch for read endpoints.
  *
  * 1. If a cached entry exists, resolve with it immediately AND kick off a
- *    background refetch that updates the cache (and resolves the returned
- *    promise a second time only if you await the refetch handle).
+ *    background refetch that updates the cache. If `onRevalidate` is provided,
+ *    it is called with the fresh data once the refetch completes, so the
+ *    caller can re-render with the new data — this is what makes the UI feel
+ *    live (cached data paints instantly, fresh data swaps in a moment later
+ *    with no spinner and no manual refresh).
  * 2. If no cache, perform the network fetch (deduped across concurrent
  *    callers), cache the result, and resolve.
  * 3. On network failure, fall back to stale cache if available; only throw if
@@ -92,10 +95,11 @@ export interface CachedResult<T> {
 export async function cachedFetch<T = any>(
   url: string,
   init?: RequestInit,
-  opts?: { method?: "GET" | "POST"; body?: any },
+  opts?: { method?: "GET" | "POST"; body?: any; onRevalidate?: (fresh: T) => void },
 ): Promise<CachedResult<T>> {
   const method = (opts?.method || (init?.method as string) || "GET").toUpperCase();
   const body = opts?.body ?? (init?.body ? JSON.parse(init.body as string) : undefined);
+  const onRevalidate = opts?.onRevalidate;
   const cacheKey = `${method}:${url}:${body ? JSON.stringify(body) : ""}`;
 
   const cached = _cacheGet(cacheKey);
@@ -132,8 +136,17 @@ export async function cachedFetch<T = any>(
   };
 
   if (cached) {
-    // Revalidate in the background; swallow errors (stale data is still shown).
-    networkFetch().catch(() => { /* keep stale cache on failure */ });
+    // Revalidate in the background; on success, update the cache and notify
+    // the caller so it can re-render with fresh data (no perceived delay
+    // between the cached paint and the new data). Swallow errors (stale data
+    // is still shown).
+    networkFetch()
+      .then((fresh) => {
+        if (onRevalidate) {
+          try { onRevalidate(fresh); } catch { /* caller render error is non-fatal */ }
+        }
+      })
+      .catch(() => { /* keep stale cache on failure */ });
     return { data: cached.data as T, fromCache: true };
   }
 
@@ -282,11 +295,11 @@ export async function runScreen(params: {
   columns?: string[];
   formulas?: string[];
   limit?: number;
-}): Promise<ScreenResult> {
+}, onRevalidate?: (fresh: ScreenResult) => void): Promise<ScreenResult> {
   const { data } = await cachedFetch(
     `${API_BASE_URL}/mcp/screen.run`,
     undefined,
-    { method: "POST", body: params },
+    { method: "POST", body: params, onRevalidate },
   );
   return data;
 }
@@ -312,11 +325,11 @@ export async function saveScreen(screen: Partial<ScreenDefinition>): Promise<{ i
 export async function fetchGreenblattScores(params?: {
   universe?: string[];
   limit?: number;
-}): Promise<{ rows: GreenblattScore[] }> {
+}, onRevalidate?: (fresh: { rows: GreenblattScore[] }) => void): Promise<{ rows: GreenblattScore[] }> {
   const { data } = await cachedFetch(
     `${API_BASE_URL}/mcp/finance.query_greenblatt_scores`,
     undefined,
-    { method: "POST", body: params || {} },
+    { method: "POST", body: params || {}, onRevalidate },
   );
   return data;
 }
@@ -365,11 +378,11 @@ export async function fetchValueCompressionScores(params?: {
   min_stability?: number;
   min_compression?: number;
   limit?: number;
-}): Promise<{ rows: ValueCompressionScore[] }> {
+}, onRevalidate?: (fresh: { rows: ValueCompressionScore[] }) => void): Promise<{ rows: ValueCompressionScore[] }> {
   const { data } = await cachedFetch(
     `${API_BASE_URL}/mcp/finance.query_value_compression`,
     undefined,
-    { method: "POST", body: params || {} },
+    { method: "POST", body: params || {}, onRevalidate },
   );
   return data;
 }
@@ -452,22 +465,22 @@ export async function fetchVRRPositions(params?: {
   min_vrr?: number;
   action?: string;
   limit?: number;
-}): Promise<{ rows: VRRPosition[] }> {
+}, onRevalidate?: (fresh: { rows: VRRPosition[] }) => void): Promise<{ rows: VRRPosition[] }> {
   const { data } = await cachedFetch(
     `${API_BASE_URL}/mcp/finance.query_vrr`,
     undefined,
-    { method: "POST", body: params || {} },
+    { method: "POST", body: params || {}, onRevalidate },
   );
   return data;
 }
 
 export async function fetchVRRSummary(params?: {
   universe?: string[];
-}): Promise<VRRSummary> {
+}, onRevalidate?: (fresh: VRRSummary) => void): Promise<VRRSummary> {
   const { data } = await cachedFetch(
     `${API_BASE_URL}/mcp/finance.query_vrr_summary`,
     undefined,
-    { method: "POST", body: params || {} },
+    { method: "POST", body: params || {}, onRevalidate },
   );
   return data;
 }
@@ -557,22 +570,22 @@ export async function fetchCompoundingDiscountPositions(params?: {
   min_cagr?: number;
   max_pb?: number;
   limit?: number;
-}): Promise<{ rows: CompoundingDiscountPosition[] }> {
+}, onRevalidate?: (fresh: { rows: CompoundingDiscountPosition[] }) => void): Promise<{ rows: CompoundingDiscountPosition[] }> {
   const { data } = await cachedFetch(
     `${API_BASE_URL}/mcp/finance.query_compounding_discount`,
     undefined,
-    { method: "POST", body: params || {} },
+    { method: "POST", body: params || {}, onRevalidate },
   );
   return data;
 }
 
 export async function fetchCompoundingDiscountSummary(params?: {
   universe?: string[];
-}): Promise<CompoundingDiscountSummary> {
+}, onRevalidate?: (fresh: CompoundingDiscountSummary) => void): Promise<CompoundingDiscountSummary> {
   const { data } = await cachedFetch(
     `${API_BASE_URL}/mcp/finance.query_compounding_discount_summary`,
     undefined,
-    { method: "POST", body: params || {} },
+    { method: "POST", body: params || {}, onRevalidate },
   );
   return data;
 }

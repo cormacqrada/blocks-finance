@@ -109,20 +109,28 @@ export class DashboardPanel extends HTMLElement {
 
     try {
       if (this.config.type === "greenblatt") {
-        const { rows } = await fetchGreenblattScores({
-          universe: this.config.universe,
-          limit: this.config.limit || 20,
-        });
+        const { rows } = await fetchGreenblattScores(
+          {
+            universe: this.config.universe,
+            limit: this.config.limit || 20,
+          },
+          // SWR: when the background refetch completes, swap in fresh rows
+          // and re-render without a spinner (no perceived delay vs cache).
+          (fresh) => { this.results = fresh.rows; this.renderBody(); },
+        );
         this.results = rows;
       } else if (this.config.type === "screener" || this.config.type === "table") {
-        const result = await runScreen({
-          filters: this.config.filters || [],
-          rank_by: this.config.rank_by || "pe_ratio",
-          rank_order: this.config.rank_order || "ASC",
-          columns: this.config.columns || ["ticker", "price", "pe_ratio", "ev_to_fcf", "gross_margin"],
-          formulas: this.config.formulas || [],
-          limit: this.config.limit || 20,
-        });
+        const result = await runScreen(
+          {
+            filters: this.config.filters || [],
+            rank_by: this.config.rank_by || "pe_ratio",
+            rank_order: this.config.rank_order || "ASC",
+            columns: this.config.columns || ["ticker", "price", "pe_ratio", "ev_to_fcf", "gross_margin"],
+            formulas: this.config.formulas || [],
+            limit: this.config.limit || 20,
+          },
+          (fresh) => { this.results = fresh.rows; this.renderBody(); },
+        );
         this.results = result.rows;
       }
     } catch (e) {

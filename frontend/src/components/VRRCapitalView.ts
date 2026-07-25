@@ -92,10 +92,21 @@ export class VRRCapitalView extends HTMLElement {
   private async fetchData() {
     try {
       await computeVRR(this.config.universe);
-      const { rows } = await fetchVRRPositions({
-        universe: this.config.universe,
-        limit: this.config.limit || 30,
-      });
+      const { rows } = await fetchVRRPositions(
+        {
+          universe: this.config.universe,
+          limit: this.config.limit || 30,
+        },
+        // SWR: swap in fresh positions + summary and re-render on refetch.
+        async (fresh) => {
+          this.data = fresh.rows;
+          this.summary = await fetchVRRSummary({ universe: this.config.universe });
+          this.renderSummary();
+          this.renderGauges();
+          this.renderMatrix();
+          this.renderInsights();
+        },
+      );
       this.data = rows;
       this.summary = await fetchVRRSummary({ universe: this.config.universe });
 

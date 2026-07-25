@@ -81,11 +81,23 @@ export class ValueCompressionMap extends HTMLElement {
       // First ensure scores are computed
       await computeValueCompressionScores(this.config.universe);
 
-      // Then fetch
-      const { rows } = await fetchValueCompressionScores({
-        universe: this.config.universe,
-        limit,
-      });
+      // Then fetch (cached SWR: cached rows paint instantly, onRevalidate
+      // swaps in fresh rows and re-renders the chart/insights once the
+      // background refetch completes).
+      const { rows } = await fetchValueCompressionScores(
+        {
+          universe: this.config.universe,
+          limit,
+        },
+        (fresh) => {
+          this.data = fresh.rows.map((r) => ({
+            ...r,
+            isSmallCap: (r.market_cap || 0) < 10_000_000_000,
+          }));
+          this.renderChart();
+          this.renderInsights();
+        },
+      );
 
       this.data = rows.map((r) => ({
         ...r,
