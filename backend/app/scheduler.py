@@ -97,25 +97,20 @@ def run_scheduled_ingestion(
             print(f"[scheduler] sec_edgar error: {e}")
 
         # Recompute derived tables once after all raw data is loaded (was
-        # previously done inside /ingest/fmp on every batch). Call each compute
-        # endpoint separately — the five heavy INSERT...SELECT statements over
-        # the network-attached DuckLake collectively exceed Render's ~100s
-        # proxy timeout, but each individual compute fits within it.
+        # previously done inside /ingest/fmp on every batch). Fire-and-forget:
+        # POST /ingest/recompute returns immediately and runs all five heavy
+        # INSERT...SELECT statements in a background thread on the backend,
+        # avoiding Render's ~100s proxy timeout on the network-attached
+        # DuckLake scans. We don't poll here — the scheduler thread shouldn't
+        # block for minutes; the backend finishes the job asynchronously and
+        # the result is visible via /ingest/recompute/status or /api/data_freshness.
         recompute_universe = tickers if len(tickers) < 1500 else None
         recompute_payload = {"universe": recompute_universe} if recompute_universe else {}
-        for step_name, step_url in [
-            ("greenblatt", "/mcp/finance.compute_greenblatt_scores"),
-            ("formulas", "/mcp/formula.compute_all"),
-            ("value_compression", "/mcp/finance.compute_value_compression"),
-            ("vrr", "/mcp/finance.compute_vrr"),
-            ("compounding_discount", "/mcp/finance.compute_compounding_discount"),
-        ]:
-            try:
-                r = client.post(step_url, json=recompute_payload, timeout=300.0)
-                if r.is_success:
-                    print(f"[scheduler] {step_name}: {r.json()}")
-            except Exception as e:
-                print(f"[scheduler] {step_name} error: {e}")
+        try:
+            r = client.post("/ingest/recompute", json=recompute_payload, timeout=60.0)
+            print(f"[scheduler] recompute: started ({r.json() if r.is_success else r.status_code})")
+        except Exception as e:
+            print(f"[scheduler] recompute start error: {e}")
 
 
 def get_scheduler():

@@ -14,7 +14,6 @@
 
 import Chart from "chart.js/auto";
 import {
-  computeCompoundingDiscount,
   fetchCompoundingDiscountPositions,
   fetchCompoundingDiscountSummary,
   simulateBVPSTrail,
@@ -90,7 +89,10 @@ export class CompoundingDiscountMonitor extends HTMLElement {
 
   private async fetchData() {
     try {
-      await computeCompoundingDiscount(this.config.universe);
+      // Fetch pre-computed positions (do NOT call computeCompoundingDiscount
+      // here — that triggers a heavy DELETE+INSERT...SELECT over the
+      // network-attached DuckLake that wedges the single worker for 30-90s.
+      // Compute happens only via the ingestion runner after data is loaded.)
       const { rows } = await fetchCompoundingDiscountPositions(
         {
           universe: this.config.universe,

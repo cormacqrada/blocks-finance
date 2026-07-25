@@ -9,7 +9,6 @@
 
 import Chart from "chart.js/auto";
 import {
-  computeVRR,
   fetchVRRPositions,
   fetchVRRSummary,
   simulateMarginalIRR,
@@ -91,7 +90,10 @@ export class VRRCapitalView extends HTMLElement {
 
   private async fetchData() {
     try {
-      await computeVRR(this.config.universe);
+      // Fetch pre-computed VRR positions (do NOT call computeVRR here — that
+      // triggers a heavy DELETE+INSERT...SELECT over the network-attached
+      // DuckLake that wedges the single worker for 30-90s. Compute happens
+      // only via the ingestion runner after data is loaded.)
       const { rows } = await fetchVRRPositions(
         {
           universe: this.config.universe,

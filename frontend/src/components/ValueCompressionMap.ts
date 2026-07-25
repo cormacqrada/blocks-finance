@@ -15,7 +15,6 @@
 import Chart from "chart.js/auto";
 import {
   fetchValueCompressionScores,
-  computeValueCompressionScores,
   type ValueCompressionScore,
 } from "../api/client";
 import {
@@ -78,12 +77,13 @@ export class ValueCompressionMap extends HTMLElement {
     const limit = this.config.limit || 100;
 
     try {
-      // First ensure scores are computed
-      await computeValueCompressionScores(this.config.universe);
-
-      // Then fetch (cached SWR: cached rows paint instantly, onRevalidate
-      // swaps in fresh rows and re-renders the chart/insights once the
-      // background refetch completes).
+      // Fetch pre-computed scores (cached SWR: cached rows paint instantly,
+      // onRevalidate swaps in fresh rows and re-renders once the background
+      // refetch completes). Do NOT call computeValueCompressionScores here —
+      // that triggers a heavy DELETE+INSERT...SELECT over the network-attached
+      // DuckLake that takes 30-90s on the free-tier 0.1 CPU and wedges the
+      // single worker, timing out every other panel. Compute happens only via
+      // the ingestion runner after data is loaded.
       const { rows } = await fetchValueCompressionScores(
         {
           universe: this.config.universe,

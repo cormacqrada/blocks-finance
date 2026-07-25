@@ -1462,7 +1462,7 @@
                   <span class="status-dot" id="status-dot-detail"></span>
                   <span id="status-text">Checking...</span>
                 </div>
-                <div class="status-detail" id="status-freshness" style="margin-top: 0.25rem; font-size: 0.75rem; color: #94a3b8;"></div>
+                <div class="status-detail" id="status-freshness" style="margin-top: 0.25rem; font-size: 0.75rem; color: #94a3b8; white-space: pre-line;"></div>
               </div>
               
               <div class="settings-section">
@@ -1698,6 +1698,15 @@
         const statusLabel = document.getElementById('status-label');
         const statusText = document.getElementById('status-text');
         const statusFreshness = document.getElementById('status-freshness');
+        const fmtTs = (s) => {
+          if (!s) return '';
+          // Backend returns naive timestamps ("YYYY-MM-DD HH:MM:SS" or ISO).
+          // Normalize to ISO and treat as UTC, then render in the user's locale.
+          const iso = s.includes('T') ? s : s.replace(' ', 'T');
+          const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+          if (isNaN(d)) return s;
+          return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        };
         
         try {
           const resp = await fetch(`${API_URL}/health`);
@@ -1707,27 +1716,24 @@
             if (statusLabel) statusLabel.textContent = 'Connected';
             if (statusText) statusText.textContent = 'Backend is running';
             
-            // Fetch data freshness
+            // Fetch data freshness (last data date + ingest/recompute times)
             try {
               const freshResp = await fetch(`${API_URL}/api/data_freshness`);
               if (freshResp.ok) {
                 const freshData = await freshResp.json();
-                if (freshData.last_data_date && statusFreshness) {
-                  statusFreshness.textContent = `Last data: ${freshData.last_data_date}`;
-                } else if (statusFreshness) {
-                  statusFreshness.textContent = 'No data yet';
-                }
-                // Show per-table freshness counts
-                if (freshData.freshness && statusFreshness) {
-                  const counts = Object.entries(freshData.freshness)
-                    .filter(([_, v]) => v.row_count > 0)
-                    .map(([k, v]) => `${k}: ${v.row_count} rows`)
-                    .join(', ');
-                  if (counts && freshData.last_data_date) {
-                    statusFreshness.textContent = `Last data: ${freshData.last_data_date} | ${counts}`;
-                  } else if (counts) {
-                    statusFreshness.textContent = counts;
-                  }
+                if (statusFreshness) {
+                  const lines = [];
+                  if (freshData.last_data_date) lines.push(`Last data: ${freshData.last_data_date}`);
+                  if (freshData.last_ingested) lines.push(`Ingested: ${fmtTs(freshData.last_ingested)}`);
+                  if (freshData.last_recompute) lines.push(`Rechecked: ${fmtTs(freshData.last_recompute)}`);
+                  const counts = freshData.freshness
+                    ? Object.entries(freshData.freshness)
+                        .filter(([_, v]) => v.row_count > 0)
+                        .map(([k, v]) => `${k}: ${v.row_count}`)
+                        .join(' · ')
+                    : '';
+                  if (counts) lines.push(counts);
+                  statusFreshness.textContent = lines.length ? lines.join('\n') : 'No data yet';
                 }
               }
             } catch (e) {

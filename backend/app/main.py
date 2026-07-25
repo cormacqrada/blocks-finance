@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import threading
 from datetime import datetime
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -3463,19 +3464,85 @@ async def run_all_ingestion(payload: Optional[dict] = None) -> dict:
     return {"status": "ok", "message": "Ingestion run_all completed (check logs for per-source results)."}
 
 
+# ---------------------------------------------------------------------------
+# Recompute job state (fire-and-forget)
+#
+# The five derived-table recomputes are heavy INSERT...SELECT statements over
+# the network-attached DuckLake (30-90s each on Render's 0.1-CPU free tier).
+# Running all five inside one HTTP request exceeds Render's ~100s proxy
+# timeout, so /ingest/recompute is fire-and-forget: it marks the job running,
+# spawns a daemon thread that walks the five steps, and returns immediately.
+# Callers poll GET /ingest/recompute/status until status == "done"|"error".
+# A Lock serializes concurrent calls — Render runs a single worker, so only
+# one recompute should ever run at a time.
+# ---------------------------------------------------------------------------
+_RECOMPUTE_LOCK = threading.Lock()
+_RECOMPUTE_STATE: dict = {
+    "status": "idle",          # idle | running | done | error
+    "step": None,              # current step name while running
+    "steps_done": [],          # step names that completed
+    "counts": {},              # per-step row counts
+    "started_at": None,        # ISO timestamp
+    "updated_at": None,
+    "finished_at": None,
+    "last_error": None,
+    "universe": None,
+}
+
+# (step name, compute fn). Order matters: VRR depends on value_compression.
+_RECOMPUTE_STEPS = [
+    ("greenblatt", _recompute_greenblatt),
+    ("formulas", compute_all_formulas),
+    ("value_compression", _compute_value_compression),
+    ("vrr", _compute_vrr_positions),
+    ("compounding_discount", _compute_compounding_discount),
+]
+
+
+def _run_recompute_job(universe) -> None:
+    """Background worker: run every compute step sequentially, updating state."""
+    state = _RECOMPUTE_STATE
+    try:
+        conn = get_connection()
+        for step_name, fn in _RECOMPUTE_STEPS:
+            with _RECOMPUTE_LOCK:
+                state["step"] = step_name
+                state["updated_at"] = datetime.now().isoformat()
+            count = fn(conn, universe)
+            with _RECOMPUTE_LOCK:
+                state["steps_done"].append(step_name)
+                state["counts"][step_name] = count
+                state["updated_at"] = datetime.now().isoformat()
+        with _RECOMPUTE_LOCK:
+            state["status"] = "done"
+            state["step"] = None
+            state["finished_at"] = datetime.now().isoformat()
+            state["updated_at"] = datetime.now().isoformat()
+    except Exception as e:
+        import traceback as _tb
+        with _RECOMPUTE_LOCK:
+            state["status"] = "error"
+            state["step"] = None
+            state["last_error"] = f"{type(e).__name__}: {e}"
+            state["traceback"] = _tb.format_exc().splitlines()[-10:]
+            state["finished_at"] = datetime.now().isoformat()
+            state["updated_at"] = datetime.now().isoformat()
+
+
 @app.post("/ingest/recompute")
 async def recompute_derived_tables(payload: Optional[dict] = None) -> dict:
-    """Recompute all derived tables from fundamentals in one pass.
+    """Fire-and-forget: start a background recompute of all derived tables.
 
-    Greenblatt scores, formula metrics, and value compression scores used to
-    be recomputed inside /ingest/fmp on every batch of 25 tickers — three
-    full-table scans per batch. Now that /ingest/fmp only bulk-upserts raw
-    fundamentals, call this endpoint ONCE after all ingestion batches for a
-    run are done (see app/run_ingestion.py).
+    The five heavy INSERT...SELECT statements over the network-attached
+    DuckLake collectively exceed Render's ~100s proxy timeout, so this
+    endpoint spawns a daemon thread and returns immediately. Poll
+    GET /ingest/recompute/status until status == "done" or "error".
+
+    If a job is already running, returns its current status without starting a
+    duplicate (the single Render worker can't run two recomputes concurrently).
 
     Input: { "universe": ["AAPL", ...] }  # optional; defaults to all tickers
     """
-    import traceback as _tb
     payload = payload or {}
     universe = payload.get("universe")
     if isinstance(universe, str):
@@ -3483,39 +3550,46 @@ async def recompute_derived_tables(payload: Optional[dict] = None) -> dict:
     elif isinstance(universe, list):
         universe = [u for u in universe if isinstance(u, str) and u.strip()] or None
 
-    import asyncio
-    def _run_all_recomputes():
-        conn = get_connection()
-        gc = _recompute_greenblatt(conn, universe)
-        fc = compute_all_formulas(conn, universe)
-        vc = _compute_value_compression(conn, universe)
-        # VRR depends on value_compression scores, so it must run after VC.
-        # Compounding discount depends only on fundamentals.
-        vr = _compute_vrr_positions(conn, universe)
-        cd = _compute_compounding_discount(conn, universe)
-        return gc, fc, vc, vr, cd
+    with _RECOMPUTE_LOCK:
+        if _RECOMPUTE_STATE["status"] == "running":
+            started = False
+        else:
+            _RECOMPUTE_STATE.update({
+                "status": "running",
+                "step": None,
+                "steps_done": [],
+                "counts": {},
+                "started_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "finished_at": None,
+                "last_error": None,
+                "universe": universe,
+            })
+            _RECOMPUTE_STATE.pop("traceback", None)  # drop stale traceback
+            started = True
 
-    try:
-        loop = asyncio.get_event_loop()
-        greenblatt_count, formula_count, vc_count, vrr_count, cdm_count = (
-            await loop.run_in_executor(None, _run_all_recomputes)
-        )
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": f"{type(e).__name__}: {e}",
-            "traceback": _tb.format_exc().splitlines()[-10:],
-        }
+    if started:
+        threading.Thread(target=_run_recompute_job, args=(universe,), daemon=True).start()
 
+    with _RECOMPUTE_LOCK:
+        snap = dict(_RECOMPUTE_STATE)
     return {
-        "status": "ok",
-        "universe": universe,
-        "greenblatt_scores": greenblatt_count,
-        "computed_metrics": formula_count,
-        "value_compression_scores": vc_count,
-        "vrr_positions": vrr_count,
-        "compounding_discount_monitor": cdm_count,
+        "status": snap["status"],
+        "step": snap["step"],
+        "started_at": snap["started_at"],
+        "steps_done": list(snap.get("steps_done") or []),
+        "note": "poll GET /ingest/recompute/status until status is done|error",
     }
+
+
+@app.get("/ingest/recompute/status")
+async def recompute_status() -> dict:
+    """Return the current fire-and-forget recompute job state."""
+    with _RECOMPUTE_LOCK:
+        snap = dict(_RECOMPUTE_STATE)
+    snap["steps_done"] = list(snap.get("steps_done") or [])
+    snap["counts"] = dict(snap.get("counts") or {})
+    return snap
 
 
 @app.get("/api/ingestion/schedule")
@@ -3592,18 +3666,32 @@ async def get_data_freshness() -> dict:
 
     freshness = {}
     overall_latest = None
+    overall_latest_ingest = None
     for tbl, (max_date, cnt, max_ts) in rows_by_table.items():
         latest_date = str(max_date) if max_date else None
         entry = {"latest_date": latest_date, "row_count": int(cnt) if cnt is not None else 0}
         if max_ts:
-            entry["last_ingested"] = str(max_ts)
+            ts_str = str(max_ts)
+            entry["last_ingested"] = ts_str
+            if overall_latest_ingest is None or ts_str > overall_latest_ingest:
+                overall_latest_ingest = ts_str
         freshness[tbl] = entry
         if latest_date and (overall_latest is None or latest_date > overall_latest):
             overall_latest = latest_date
 
+    # Last successful recompute time + current job status, from the
+    # fire-and-forget recompute tracker. Surfaces "when were derived tables
+    # last refreshed" to the connection-status dropdown.
+    with _RECOMPUTE_LOCK:
+        rc = dict(_RECOMPUTE_STATE)
+    last_recompute = rc.get("finished_at") if rc.get("status") == "done" else None
+
     return {
         "freshness": freshness,
         "last_data_date": overall_latest,
+        "last_ingested": overall_latest_ingest,
+        "last_recompute": last_recompute,
+        "recompute_status": rc.get("status"),
     }
 
 

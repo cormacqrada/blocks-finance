@@ -249,34 +249,39 @@ async def run_all(
             )
 
         # 6. Recompute derived tables once after all raw data is loaded.
-        # /ingest/fmp now only bulk-upserts fundamentals; the derived-table
-        # recomputes were moved here so a full run pays for them exactly once
-        # instead of once per 25-ticker batch.
-        #
-        # We call each compute endpoint SEPARATELY (not one /ingest/recompute)
-        # because the five heavy INSERT...SELECT statements over the
-        # network-attached DuckLake collectively exceed Render's ~100s proxy
-        # timeout. Each individual compute fits within the limit, and the
-        # runner's 300s client timeout gives headroom for slow network scans.
+        # Fire-and-forget: POST /ingest/recompute returns immediately and runs
+        # all five heavy INSERT...SELECT statements in a background thread on
+        # the backend, so no single HTTP request is held open long enough to
+        # hit Render's ~100s proxy timeout. We then poll
+        # /ingest/recompute/status until it finishes (30 min cap — a full
+        # S&P 500 recompute can take several minutes on the 0.1-CPU free tier).
         recompute_universe = tickers if len(tickers) < 1500 else None
         recompute_payload = {"universe": recompute_universe} if recompute_universe else {}
-        compute_steps = [
-            ("greenblatt", "/mcp/finance.compute_greenblatt_scores"),
-            ("formulas", "/mcp/formula.compute_all"),
-            ("value_compression", "/mcp/finance.compute_value_compression"),
-            ("vrr", "/mcp/finance.compute_vrr"),
-            ("compounding_discount", "/mcp/finance.compute_compounding_discount"),
-        ]
-        print("Recomputing derived tables (5 steps, each a separate request)...")
-        for step_name, step_url in compute_steps:
-            try:
-                resp = await client.post(step_url, json=recompute_payload, timeout=300.0)
-                if resp.is_success:
-                    print(f"  ✅ {step_name}: {resp.json()}")
-                else:
-                    print(f"  ❌ {step_name}: HTTP {resp.status_code} - {resp.text[:200]}")
-            except Exception as exc:
-                print(f"  ❌ {step_name}: {type(exc).__name__}: {exc}")
+        print("Recomputing derived tables (fire-and-forget + status poll)...")
+        try:
+            await client.post("/ingest/recompute", json=recompute_payload, timeout=60.0)
+        except Exception as exc:
+            print(f"  ❌ could not start recompute: {type(exc).__name__}: {exc}")
+        else:
+            deadline = time.monotonic() + 1800
+            while time.monotonic() < deadline:
+                await asyncio.sleep(5.0)
+                try:
+                    sr = await client.get("/ingest/recompute/status", timeout=30.0)
+                    st = sr.json() if sr.is_success else {}
+                except Exception as exc:
+                    print(f"  ⚠️ status poll error: {type(exc).__name__}: {exc}")
+                    continue
+                status = st.get("status")
+                step = st.get("step")
+                done = st.get("steps_done") or []
+                if step:
+                    print(f"  … recompute {status}: step={step}, done={done}")
+                if status in ("done", "error"):
+                    print(f"  {'✅' if status == 'done' else '❌'} recompute {status}: {st}")
+                    break
+            else:
+                print("  ⚠️ recompute did not finish within 30 min cap")
 
     print("Ingestion run finished.")
 
