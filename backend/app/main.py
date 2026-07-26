@@ -139,7 +139,7 @@ async def health() -> dict:
 
 
 @app.get("/debug/fundamentals")
-async def get_fundamentals() -> dict:
+def get_fundamentals() -> dict:
     """Debug endpoint: get raw fundamentals data."""
     conn = get_connection()
     rows = conn.execute(
@@ -161,7 +161,7 @@ async def get_fundamentals() -> dict:
 
 
 @app.get("/debug/duplicate_check")
-async def debug_duplicate_check(table: str = "fundamentals", keys: str = "ticker,as_of") -> dict:
+def debug_duplicate_check(table: str = "fundamentals", keys: str = "ticker,as_of") -> dict:
     """Return rows that violate the logical (keys) uniqueness for `table`.
 
     DuckLake has no PK constraints, so this is the only way to confirm a bulk
@@ -177,7 +177,7 @@ async def debug_duplicate_check(table: str = "fundamentals", keys: str = "ticker
 
 
 @app.post("/debug/seed_sample_greenblatt")
-async def seed_sample_greenblatt() -> dict:
+def seed_sample_greenblatt() -> dict:
     """Debug endpoint: seed comprehensive sample fundamentals data for value investing."""
     conn = get_connection()
     
@@ -296,7 +296,7 @@ async def seed_sample_greenblatt() -> dict:
 
 
 @app.post("/mcp/finance.upsert_fundamentals")
-async def upsert_fundamentals(payload: dict) -> dict:
+def upsert_fundamentals(payload: dict) -> dict:
     """MCP-style tool: upsert fundamentals rows into DuckDB.
 
     Input shape (loosely): {"rows": FundamentalRow[]}.
@@ -350,7 +350,7 @@ async def compute_greenblatt_scores(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/finance.query_greenblatt_scores")
-async def query_greenblatt_scores(payload: Optional[QueryGreenblattInput] = None) -> dict:
+def query_greenblatt_scores(payload: Optional[QueryGreenblattInput] = None) -> dict:
     """MCP-style tool: query Greenblatt scores from DuckDB.
 
     Input shape (optional): {"universe": string[] | string, "limit": number}.
@@ -620,7 +620,7 @@ async def compute_value_compression(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/finance.query_value_compression")
-async def query_value_compression(payload: Optional[dict] = None) -> dict:
+def query_value_compression(payload: Optional[dict] = None) -> dict:
     """Query value compression scores.
     
     Input (optional): {
@@ -826,7 +826,7 @@ async def compute_vrr(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/finance.query_vrr")
-async def query_vrr(payload: Optional[dict] = None) -> dict:
+def query_vrr(payload: Optional[dict] = None) -> dict:
     """Query VRR positions.
     
     Input (optional): {
@@ -902,7 +902,7 @@ async def query_vrr(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/finance.query_vrr_summary")
-async def query_vrr_summary(payload: Optional[dict] = None) -> dict:
+def query_vrr_summary(payload: Optional[dict] = None) -> dict:
     """Query portfolio-level VRR summary.
     
     Input (optional): { "universe": ["AAPL", "MSFT"] }
@@ -976,7 +976,7 @@ async def query_vrr_summary(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/finance.simulate_marginal_irr")
-async def simulate_marginal_irr(payload: dict) -> dict:
+def simulate_marginal_irr(payload: dict) -> dict:
     """Simulate marginal IRR curve for a ticker at different capital addition levels.
     
     Input: {
@@ -1291,7 +1291,7 @@ async def compute_compounding_discount(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/finance.query_compounding_discount")
-async def query_compounding_discount(payload: Optional[dict] = None) -> dict:
+def query_compounding_discount(payload: Optional[dict] = None) -> dict:
     """Query compounding discount monitor positions.
     
     Input (optional): {
@@ -1374,7 +1374,7 @@ async def query_compounding_discount(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/finance.query_compounding_discount_summary")
-async def query_compounding_discount_summary(payload: Optional[dict] = None) -> dict:
+def query_compounding_discount_summary(payload: Optional[dict] = None) -> dict:
     """Query portfolio-level compounding discount summary.
     
     Input (optional): { "universe": ["AAPL", "MSFT"] }
@@ -1464,7 +1464,7 @@ async def query_compounding_discount_summary(payload: Optional[dict] = None) -> 
 
 
 @app.post("/mcp/finance.simulate_bvps_trail")
-async def simulate_bvps_trail(payload: dict) -> dict:
+def simulate_bvps_trail(payload: dict) -> dict:
     """Simulate trailing BVPS/P/B history for a single ticker (ghost trail).
     
     Generates a projected trail showing how BVPS compounds while market price
@@ -1569,7 +1569,7 @@ async def simulate_bvps_trail(payload: dict) -> dict:
 
 
 @app.get("/mcp/formula.list")
-async def list_formulas(category: Optional[str] = None) -> dict:
+def list_formulas(category: Optional[str] = None) -> dict:
     """List all available formulas.
     
     Query params:
@@ -1607,7 +1607,7 @@ async def list_formulas(category: Optional[str] = None) -> dict:
 
 
 @app.post("/mcp/formula.create")
-async def create_formula(payload: dict) -> dict:
+def create_formula(payload: dict) -> dict:
     """Create a new custom formula.
     
     Input: {
@@ -1661,7 +1661,7 @@ async def create_formula(payload: dict) -> dict:
 
 
 @app.post("/mcp/formula.validate")
-async def validate_formula(payload: dict) -> dict:
+def validate_formula(payload: dict) -> dict:
     """Validate a formula expression without saving it.
     
     Input: {"expression": "pe_ratio / eps_growth_yoy"}
@@ -1679,7 +1679,7 @@ async def validate_formula(payload: dict) -> dict:
 
 
 @app.post("/mcp/formula.evaluate")
-async def evaluate_formula(payload: dict) -> dict:
+def evaluate_formula(payload: dict) -> dict:
     """Evaluate a formula for a universe of tickers.
     
     Input: {
@@ -1744,7 +1744,7 @@ async def compute_all_metrics(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/screen.run")
-async def run_screen(payload: dict) -> dict:
+def run_screen(payload: dict) -> dict:
     """Run a stock screen with filters and rankings.
     
     Input: {
@@ -1911,7 +1911,7 @@ async def run_screen(payload: dict) -> dict:
 
 
 @app.post("/mcp/screen.save")
-async def save_screen(payload: dict) -> dict:
+def save_screen(payload: dict) -> dict:
     """Save a screen definition for reuse.
     
     Input: {
@@ -1947,7 +1947,7 @@ async def save_screen(payload: dict) -> dict:
 
 
 @app.get("/mcp/screen.list")
-async def list_screens() -> dict:
+def list_screens() -> dict:
     """List all saved screen definitions."""
     conn = get_connection()
     
@@ -1974,7 +1974,7 @@ async def list_screens() -> dict:
 
 
 @app.get("/mcp/fundamentals.fields")
-async def list_fundamentals_fields() -> dict:
+def list_fundamentals_fields() -> dict:
     """List all available fields from the fundamentals table."""
     return {
         "fields": sorted(list(FUNDAMENTALS_FIELDS)),
@@ -1999,7 +1999,7 @@ async def list_fundamentals_fields() -> dict:
 
 
 @app.get("/api/taxonomy")
-async def get_taxonomy() -> dict:
+def get_taxonomy() -> dict:
     """Get the full taxonomy hierarchy.
     
     Returns:
@@ -2011,19 +2011,19 @@ async def get_taxonomy() -> dict:
 
 
 @app.get("/api/taxonomy/sectors")
-async def get_sectors() -> dict:
+def get_sectors() -> dict:
     """Get list of macro sectors (Level 1)."""
     return {"sectors": get_macro_sectors()}
 
 
 @app.get("/api/taxonomy/clusters")
-async def get_clusters(sector: Optional[str] = None) -> dict:
+def get_clusters(sector: Optional[str] = None) -> dict:
     """Get industry clusters (Level 2), optionally filtered by sector."""
     return {"clusters": get_industry_clusters(sector)}
 
 
 @app.get("/api/taxonomy/business_models")
-async def get_business_models(
+def get_business_models(
     sector: Optional[str] = None,
     cluster: Optional[str] = None,
 ) -> dict:
@@ -2032,13 +2032,13 @@ async def get_business_models(
 
 
 @app.get("/api/taxonomy/themes")
-async def get_all_themes() -> dict:
+def get_all_themes() -> dict:
     """Get all custom themes (Level 4) with descriptions."""
     return {"themes": get_themes()}
 
 
 @app.get("/api/taxonomy/mapping/{ticker}")
-async def get_ticker_taxonomy(ticker: str) -> dict:
+def get_ticker_taxonomy(ticker: str) -> dict:
     """Get taxonomy mapping for a specific ticker."""
     conn = get_connection()
     
@@ -2073,7 +2073,7 @@ async def get_ticker_taxonomy(ticker: str) -> dict:
 
 
 @app.get("/api/taxonomy/mappings")
-async def get_all_taxonomy_mappings() -> dict:
+def get_all_taxonomy_mappings() -> dict:
     """Get all ticker taxonomy mappings."""
     conn = get_connection()
     
@@ -2098,7 +2098,7 @@ async def get_all_taxonomy_mappings() -> dict:
 
 
 @app.post("/api/taxonomy/mapping")
-async def upsert_taxonomy_mapping(payload: dict) -> dict:
+def upsert_taxonomy_mapping(payload: dict) -> dict:
     """Create or update a ticker's taxonomy mapping.
     
     Input: {
@@ -2156,7 +2156,7 @@ async def upsert_taxonomy_mapping(payload: dict) -> dict:
 
 
 @app.post("/api/taxonomy/filter")
-async def filter_by_taxonomy(payload: dict) -> dict:
+def filter_by_taxonomy(payload: dict) -> dict:
     """Filter tickers by taxonomy criteria.
     
     Input: {
@@ -2249,7 +2249,7 @@ async def filter_by_taxonomy(payload: dict) -> dict:
 
 
 @app.get("/api/taxonomy/by_sector")
-async def get_tickers_by_sector() -> dict:
+def get_tickers_by_sector() -> dict:
     """Get all tickers grouped by macro sector."""
     conn = get_connection()
     
@@ -2267,7 +2267,7 @@ async def get_tickers_by_sector() -> dict:
 
 
 @app.get("/api/taxonomy/by_theme/{theme}")
-async def get_tickers_by_theme(theme: str) -> dict:
+def get_tickers_by_theme(theme: str) -> dict:
     """Get all tickers with a specific theme tag."""
     if theme not in CUSTOM_THEMES:
         raise HTTPException(status_code=404, detail=f"Unknown theme: {theme}")
@@ -2297,7 +2297,7 @@ async def get_tickers_by_theme(theme: str) -> dict:
 
 
 @app.get("/api/companies")
-async def get_companies(
+def get_companies(
     macro_sector: Optional[str] = None,
     industry_cluster: Optional[str] = None,
     theme: Optional[str] = None,
@@ -2398,7 +2398,7 @@ async def get_companies(
 
 
 @app.get("/api/fundamentals_history/{ticker}")
-async def get_fundamentals_history(ticker: str) -> dict:
+def get_fundamentals_history(ticker: str) -> dict:
     """Return all fundamentals rows for a ticker ordered by as_of (ascending)."""
     conn = get_connection()
     t = ticker.upper()
@@ -2430,7 +2430,7 @@ async def get_fundamentals_history(ticker: str) -> dict:
 
 
 @app.get("/api/earnings_history/{ticker}")
-async def api_earnings_history(ticker: str) -> dict:
+def api_earnings_history(ticker: str) -> dict:
     """EPS history for a ticker derived from fundamentals (quarterly).
 
     This matches what the frontend expects (an object with `data: [{date, eps, ...}]`).
@@ -2464,7 +2464,7 @@ async def api_earnings_history(ticker: str) -> dict:
 
 
 @app.get("/api/price_history/{ticker}")
-async def api_price_history(ticker: str, period: str = "5y") -> dict:
+def api_price_history(ticker: str, period: str = "5y") -> dict:
     """Price history for a ticker.
 
     Prefers `price_history` table (daily) if populated; falls back to quarterly
@@ -3039,7 +3039,7 @@ async def ingest_fmp_prices(payload: Optional[dict] = None) -> dict:
 
 
 @app.get("/api/price_history/{ticker}")
-async def get_price_history(ticker: str, period: str = "1y") -> dict:
+def get_price_history(ticker: str, period: str = "1y") -> dict:
     """Get price history for a ticker."""
     conn = get_connection()
     
@@ -3080,7 +3080,7 @@ async def get_price_history(ticker: str, period: str = "1y") -> dict:
 
 
 @app.get("/api/earnings_history/{ticker}")
-async def get_earnings_history(ticker: str) -> dict:
+def get_earnings_history(ticker: str) -> dict:
     """Get earnings history for a ticker."""
     conn = get_connection()
     
@@ -3382,7 +3382,7 @@ async def ingest_from_fred(payload: Optional[dict] = None) -> dict:
 
 
 @app.get("/api/universe/presets")
-async def list_universe_presets() -> dict:
+def list_universe_presets() -> dict:
     """List available universe presets (default, sp500, small_mid)."""
     from app.universe import PRESETS, get_preset_universe
     presets = {}
@@ -3395,7 +3395,7 @@ async def list_universe_presets() -> dict:
 
 
 @app.get("/api/universe")
-async def get_universe_list(preset: Optional[str] = None) -> dict:
+def get_universe_list(preset: Optional[str] = None) -> dict:
     """Get ticker list for a preset. Query: ?preset=default|sp500|small_mid (default=default)."""
     from app.universe import get_universe, PRESETS
     preset = (preset or "default").strip().lower()
@@ -3406,7 +3406,7 @@ async def get_universe_list(preset: Optional[str] = None) -> dict:
 
 
 @app.post("/api/universe/refresh")
-async def refresh_universe(payload: Optional[dict] = None) -> dict:
+def refresh_universe(payload: Optional[dict] = None) -> dict:
     """Refresh a universe preset and cache to disk.
     
     Input: { "preset": "sp500" | "small_mid", "api_key": "..." (optional) }
@@ -3606,7 +3606,7 @@ async def get_ingestion_schedule() -> dict:
 
 
 @app.get("/api/tickers")
-async def get_tickers() -> dict:
+def get_tickers() -> dict:
     """Return the distinct list of tickers that have fundamentals data.
 
     Lightweight (one SELECT DISTINCT, ~500 small strings) — used by the search
@@ -3627,7 +3627,7 @@ async def get_tickers() -> dict:
 
 
 @app.get("/api/data_freshness")
-async def get_data_freshness() -> dict:
+def get_data_freshness() -> dict:
     """Get last-refresh timestamps for all data tables.
 
     One UNION ALL round-trip instead of the old 14 (MAX + COUNT per table × 7
@@ -3696,7 +3696,7 @@ async def get_data_freshness() -> dict:
 
 
 @app.get("/api/data_sources")
-async def get_data_sources_status() -> dict:
+def get_data_sources_status() -> dict:
     """Get status of all data sources and record counts."""
     conn = get_connection()
     
@@ -3738,7 +3738,7 @@ async def get_data_sources_status() -> dict:
 
 
 @app.get("/api/insider_transactions/{ticker}")
-async def get_insider_transactions(ticker: str, limit: int = 20) -> dict:
+def get_insider_transactions(ticker: str, limit: int = 20) -> dict:
     """Get insider transactions for a ticker."""
     conn = get_connection()
     
@@ -3773,7 +3773,7 @@ async def get_insider_transactions(ticker: str, limit: int = 20) -> dict:
 
 
 @app.get("/api/company_news/{ticker}")
-async def get_company_news(ticker: str, limit: int = 20) -> dict:
+def get_company_news(ticker: str, limit: int = 20) -> dict:
     """Get news for a ticker."""
     conn = get_connection()
     
@@ -3804,7 +3804,7 @@ async def get_company_news(ticker: str, limit: int = 20) -> dict:
 
 
 @app.get("/api/macro/{series_id}")
-async def get_macro_indicator(series_id: str, period: str = "5y") -> dict:
+def get_macro_indicator(series_id: str, period: str = "5y") -> dict:
     """Get macro indicator time series."""
     from datetime import datetime, timedelta
     
@@ -3836,7 +3836,7 @@ async def get_macro_indicator(series_id: str, period: str = "5y") -> dict:
 
 
 @app.get("/api/analyst_recommendations/{ticker}")
-async def get_analyst_recommendations(ticker: str, limit: int = 10) -> dict:
+def get_analyst_recommendations(ticker: str, limit: int = 10) -> dict:
     """Get analyst recommendations history for a ticker."""
     conn = get_connection()
     
@@ -3883,7 +3883,7 @@ async def get_analyst_recommendations(ticker: str, limit: int = 10) -> dict:
 
 
 @app.get("/api/whale_activity")
-async def get_whale_activity(limit: int = 50) -> dict:
+def get_whale_activity(limit: int = 50) -> dict:
     """Get recent institutional holdings activity across all stocks.
     
     Returns new positions, increased positions, and decreased positions
@@ -3960,7 +3960,7 @@ async def get_whale_activity(limit: int = 50) -> dict:
 
 
 @app.get("/api/whale_holdings/{ticker}")
-async def get_whale_holdings_for_ticker(ticker: str, limit: int = 20) -> dict:
+def get_whale_holdings_for_ticker(ticker: str, limit: int = 20) -> dict:
     """Get institutional holders for a specific ticker."""
     conn = get_connection()
     
@@ -4002,7 +4002,7 @@ async def get_whale_holdings_for_ticker(ticker: str, limit: int = 20) -> dict:
 
 
 @app.get("/api/macro_overview")
-async def get_macro_overview() -> dict:
+def get_macro_overview() -> dict:
     """Get latest values for key macro indicators."""
     conn = get_connection()
     
@@ -4420,7 +4420,7 @@ def _compute_capital_efficiency(conn: duckdb.DuckDBPyConnection) -> dict:
 
 
 @app.post("/mcp/portfolio.upsert_holding")
-async def upsert_holding(payload: dict) -> dict:
+def upsert_holding(payload: dict) -> dict:
     """Add or update a portfolio holding.
     
     Input: {
@@ -4459,7 +4459,7 @@ async def upsert_holding(payload: dict) -> dict:
 
 
 @app.post("/mcp/portfolio.delete_holding")
-async def delete_holding(payload: dict) -> dict:
+def delete_holding(payload: dict) -> dict:
     """Delete a portfolio holding.
     
     Input: { "ticker": "AAPL", "buy_date": "2024-03-15" }
@@ -4478,7 +4478,7 @@ async def delete_holding(payload: dict) -> dict:
 
 
 @app.post("/mcp/portfolio.query_holdings")
-async def query_holdings(payload: Optional[dict] = None) -> dict:
+def query_holdings(payload: Optional[dict] = None) -> dict:
     """Query all portfolio holdings with enrichment.
     
     Returns each holding with current price, return calculations, and
@@ -4534,7 +4534,7 @@ async def query_holdings(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/portfolio.compute_signal_strength")
-async def compute_signal_strength(payload: Optional[dict] = None) -> dict:
+def compute_signal_strength(payload: Optional[dict] = None) -> dict:
     """Recompute signal strength tracker for all holdings.
     
     For each holding, looks up the visualization zone/threshold at buy_date
@@ -4556,7 +4556,7 @@ async def compute_signal_strength(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/portfolio.query_signal_strength")
-async def query_signal_strength(payload: Optional[dict] = None) -> dict:
+def query_signal_strength(payload: Optional[dict] = None) -> dict:
     """Query aggregated signal strength / accuracy.
     
     Input (optional): { "signal_type": "vrr_action" }
@@ -4669,7 +4669,7 @@ async def query_signal_strength(payload: Optional[dict] = None) -> dict:
 
 
 @app.post("/mcp/portfolio.query_capital_efficiency")
-async def query_capital_efficiency(payload: Optional[dict] = None) -> dict:
+def query_capital_efficiency(payload: Optional[dict] = None) -> dict:
     """Compute and return capital efficiency for the portfolio.
     
     Returns per-position efficiency, opportunity cost, gain momentum, and

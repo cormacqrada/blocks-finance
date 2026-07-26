@@ -13,7 +13,7 @@ services:
   - type: web
     name: blocks-finance-api
     runtime: docker
-    plan: free              # 512MB / 0.1 CPU; spins down after 15min idle, ~50s cold start
+    plan: standard          # 2GB / 1 CPU; always-on (no spin-down), zero-downtime deploys
     region: oregon          # closest Render region to Neon us-east
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health

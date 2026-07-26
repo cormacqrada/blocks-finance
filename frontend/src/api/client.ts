@@ -7,9 +7,10 @@
  *     so panels render with data instead of spinners while the refetch runs.
  *   - Only the very first load (no cache) waits on the network and may show a
  *     spinner.
- *   - Each request has a 12s timeout and one retry, so a transient backend
- *     slow-down (Render cold start, ingestion in flight) falls back to stale
- *     cache instead of hanging the UI.
+ *   - Each request has a 30s timeout and one retry. 30s covers the one-time
+ *     DuckLake attach (~30s) right after a deploy; on a warm always-on instance
+ *     queries return in <1s so the timeout never fires. SWR cache still paints
+ *     instantly, and stale cache is shown on any transient failure.
  * POST mutations (createFormula, saveScreen, compute*) bypass the cache.
  */
 
@@ -22,7 +23,7 @@ const API_BASE_URL = API_BASE;
 // ─── Stale-while-revalidate cache layer ─────────────────────────────────────
 
 const CACHE_PREFIX = "bfin-cache:";
-const REQUEST_TIMEOUT_MS = 12000;
+const REQUEST_TIMEOUT_MS = 30000;
 // In-flight fetches deduplicated by cache key so N panels requesting the same
 // endpoint share one network round-trip.
 const _inflight: Map<string, Promise<any>> = new Map();

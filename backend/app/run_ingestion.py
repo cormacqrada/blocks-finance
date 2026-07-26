@@ -50,10 +50,12 @@ TIMEOUTS: dict[str, float] = {
 }
 
 # Default batch size when splitting a large ticker list across multiple calls.
-# DuckLake upserts (Neon catalog + R2) are network-bound per row, so batches
-# must stay small enough that one batch finishes well within the source
-# timeout. 25 tickers ≈ 30-90 s per batch on Render free tier.
-DEFAULT_BATCH_SIZE = 25
+# DuckLake upserts (Neon catalog + R2) are network-bound per row, and each
+# /ingest/fmp_prices batch does 25 sequential FMP calls + ~18k price-row
+# upserts. On free tier that exceeded Render's proxy window; on Standard it
+# fits, but 5 keeps headroom even during slow R2/Neon phases and prevents
+# the worker from ever being blocked by one giant request.
+DEFAULT_BATCH_SIZE = 5
 
 
 def _get_tickers(args_tickers: List[str] | None, preset: str | None) -> List[str]:

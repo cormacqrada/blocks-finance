@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -39,6 +40,13 @@ _lake_lock = threading.Lock()
 # Cached MERGE-vs-DELETE+INSERT decision for upsert_row.
 # None = not probed yet; True = MERGE works; False = use DELETE+INSERT.
 _merge_supported: Optional[bool] = None
+
+# Timestamp of the last failed DuckLake ATTACH. Used to rate-limit retries so
+# a dead Neon catalog / R2 doesn't exhaust the request threadpool with
+# back-to-back 10-second attach attempts — every endpoint would otherwise
+# block a worker thread for the full connect_timeout.
+_lake_last_fail: Optional[float] = None
+_LAKE_RETRY_COOLDOWN = 30.0
 
 
 # ─── DuckLake detection ───────────────────────────────────────────────────────
@@ -106,10 +114,16 @@ def _build_ducklake() -> duckdb.DuckDBPyConnection:
             f"port={os.getenv('PG_CATALOG_PORT', '5432')} "
             f"user={os.getenv('PG_CATALOG_USER')} "
             f"password={os.getenv('PG_CATALOG_PASSWORD')} "
-            f"sslmode=require"
+            f"sslmode=require "
+            f"connect_timeout=10"
         )
-    elif "sslmode" not in pg_url:
-        pg_url = pg_url + ("&" if "?" in pg_url else "?") + "sslmode=require"
+    else:
+        # Append any missing libpq params we rely on. connect_timeout caps the
+        # TCP connect so a suspended/deleted Neon catalog fails in ~10s instead
+        # of hanging forever — an unbounded connect is what wedged the worker.
+        for _param, _val in (("sslmode", "require"), ("connect_timeout", "10")):
+            if _param not in pg_url:
+                pg_url = pg_url + (("&" if "?" in pg_url else "?") + f"{_param}={_val}")
 
     bucket = os.getenv("R2_BUCKET", "").strip("/")
     data_path = f"s3://{bucket}/lake/"
@@ -141,11 +155,27 @@ def get_connection() -> duckdb.DuckDBPyConnection:
     long-lived.
     """
     if _ducklake_enabled():
-        global _lake_db
+        global _lake_db, _lake_last_fail
         if _lake_db is None:
+            # If the last ATTACH failed recently, fail fast instead of retrying
+            # on every request. Back-to-back 10s attaches to a dead Neon/R2
+            # would exhaust the request threadpool and re-wedge the worker.
+            # Endpoints either catch this (return empty) or it 500s quickly;
+            # the frontend SWR cache shows stale data meanwhile, and the worker
+            # stays responsive for /health and other routes.
+            if _lake_last_fail is not None and (time.time() - _lake_last_fail) < _LAKE_RETRY_COOLDOWN:
+                raise RuntimeError(
+                    "DuckLake unavailable (catalog attach failed recently); "
+                    f"retrying in {_LAKE_RETRY_COOLDOWN - (time.time() - _lake_last_fail):.0f}s"
+                )
             with _lake_lock:
                 if _lake_db is None:  # double-checked locking
-                    _lake_db = _build_ducklake()
+                    try:
+                        _lake_db = _build_ducklake()
+                        _lake_last_fail = None
+                    except Exception:
+                        _lake_last_fail = time.time()
+                        raise
         # NOTE: a fresh cursor does NOT inherit the parent connection's `USE lake`
         # default-database setting — unqualified table names (e.g. `FROM greenblatt_scores`)
         # would resolve against the empty in-memory `main` schema and raise
