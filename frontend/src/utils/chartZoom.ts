@@ -1,17 +1,14 @@
 /**
- * chartZoom.ts — centralized zoom/pan for every Chart.js chart.
+ * chartZoom.ts — centralized zoom/pan for every Chart.js chart, mobile-aware.
  *
- * Why central: the dashboard creates Chart.js instances across ~14 Web
- * Components, each in its own Shadow DOM. Instead of wrapping every
- * `new Chart(...)` call, we:
- *   1. register chartjs-plugin-zoom once,
- *   2. set Chart.defaults.plugins.zoom so wheel/pinch zoom + drag pan apply
- *      to ALL charts automatically,
- *   3. register a companion `zoomOverlay` plugin that, on each chart init,
- *      injects a "reset zoom" button + a responsive <style> into the chart's
- *      canvas root (ShadowRoot or document), and
- *   4. wire a global click + dblclick handler (using composedPath so it
- *      crosses Shadow DOM) to reset zoom via Chart.getChart.
+ * Behavior:
+ *  - Desktop: wheel zoom + mouse drag pan (unchanged). Double-click or the
+ *    ⤢ button resets.
+ *  - Touch (pointer: coarse): page scroll wins by default. Pinch zooms the
+ *    chart. A long-press (~500ms hold) toggles "pan mode" for that chart so
+ *    the next drag pans freely; tap the chart, tap the indicator, or hit reset
+ *    to exit pan mode. (touch-action is fixed at touchstart per gesture, so
+ *    long-press arms pan mode for the *next* drag rather than mid-gesture.)
  *
  * Call `registerChartZoom()` once at app startup (idempotent).
  */
@@ -19,16 +16,11 @@
 import { Chart } from "chart.js";
 import zoomPlugin from "chartjs-plugin-zoom";
 
-// Styles injected into each chart's canvas root. Lives inside Shadow DOM so
-// container queries here are isolated and correct. `.chart-container` is the
-// conventional wrapper used across the codebase; we also handle canvases whose
-// parent lacks that class by promoting the parent to a positioning context.
 export const CHART_ZOOM_CSS = `
   .chart-container {
     position: relative;
     container-type: inline-size;
   }
-  /* Give narrow (mobile) chart panels a taller min height so data stays legible */
   @container (max-width: 420px) {
     .chart-container { min-height: 240px; }
   }
@@ -74,18 +66,178 @@ export const CHART_ZOOM_CSS = `
     transition: opacity 0.2s ease;
   }
   .chart-container.zoomed .chart-zoom-hint { opacity: 0; }
+  /* Hide the hint on narrow panels, except the touch variant (discoverability). */
   @container (max-width: 420px) {
-    .chart-zoom-hint { display: none; }
+    .chart-zoom-hint:not(.touch-hint) { display: none; }
+    .chart-zoom-hint.touch-hint { opacity: 0.55; }
+  }
+
+  /* Long-press "pan mode" indicator (touch only) */
+  .chart-pan-indicator {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(96, 165, 250, 0.15);
+    border: 1px solid rgba(96, 165, 250, 0.5);
+    color: #60a5fa;
+    font-size: 0.65rem;
+    line-height: 1.3;
+    display: none;
+    z-index: 6;
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .chart-container.pan-mode .chart-pan-indicator { display: block; }
+  .chart-container.pan-mode {
+    outline: 1px solid rgba(96, 165, 250, 0.4);
+    outline-offset: -2px;
   }
 `;
 
-function markZoomed(chart: Chart) {
+function isTouchDevice(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+}
+
+// Per-canvas pan-mode ("armed") state and long-press/auto-dismiss timers.
+const armedCanvases = new WeakSet<HTMLCanvasElement>();
+const pressTimers = new WeakMap<HTMLCanvasElement, ReturnType<typeof setTimeout>>();
+const disarmTimers = new WeakMap<HTMLCanvasElement, ReturnType<typeof setTimeout>>();
+const touchStart = new WeakMap<HTMLCanvasElement, { x: number; y: number; t: number }>();
+
+const PAN_PRESS_MS = 500;
+const PAN_MOVE_TOLERANCE = 10;
+const PAN_AUTO_DISMISS_MS = 12000;
+
+function applyTouchAction(canvas: HTMLCanvasElement): void {
+  if (!isTouchDevice()) return;
+  // pan-y: browser keeps vertical page scroll; pinch still routes to the
+  // plugin (pan-y does not claim pinch). When armed, none: plugin gets full pan.
+  canvas.style.touchAction = armedCanvases.has(canvas) ? "none" : "pan-y";
+}
+
+function clearPressTimer(canvas: HTMLCanvasElement): void {
+  const t = pressTimers.get(canvas);
+  if (t) {
+    clearTimeout(t);
+    pressTimers.delete(canvas);
+  }
+}
+
+function setPanMode(canvas: HTMLCanvasElement, on: boolean): void {
+  const container = canvas.closest(".chart-container");
+  if (on) {
+    armedCanvases.add(canvas);
+    container?.classList.add("pan-mode");
+    const existing = disarmTimers.get(canvas);
+    if (existing) clearTimeout(existing);
+    disarmTimers.set(
+      canvas,
+      setTimeout(() => setPanMode(canvas, false), PAN_AUTO_DISMISS_MS)
+    );
+  } else {
+    armedCanvases.delete(canvas);
+    container?.classList.remove("pan-mode");
+    const existing = disarmTimers.get(canvas);
+    if (existing) {
+      clearTimeout(existing);
+      disarmTimers.delete(canvas);
+    }
+  }
+  applyTouchAction(canvas);
+}
+
+function resetDisarmTimer(canvas: HTMLCanvasElement): void {
+  if (!armedCanvases.has(canvas)) return;
+  const existing = disarmTimers.get(canvas);
+  if (existing) clearTimeout(existing);
+  disarmTimers.set(
+    canvas,
+    setTimeout(() => setPanMode(canvas, false), PAN_AUTO_DISMISS_MS)
+  );
+}
+
+function attachTouchPan(canvas: HTMLCanvasElement): void {
+  if (!isTouchDevice()) return;
+
+  canvas.addEventListener(
+    "touchstart",
+    (e) => {
+      if (e.touches.length !== 1) {
+        clearPressTimer(canvas);
+        return;
+      }
+      const t = e.touches[0];
+      touchStart.set(canvas, { x: t.clientX, y: t.clientY, t: Date.now() });
+      // Only long-press to ARM; if already armed, this gesture may be a tap-to-exit.
+      if (!armedCanvases.has(canvas)) {
+        clearPressTimer(canvas);
+        pressTimers.set(
+          canvas,
+          setTimeout(() => setPanMode(canvas, true), PAN_PRESS_MS)
+        );
+      }
+    },
+    { passive: true }
+  );
+
+  canvas.addEventListener(
+    "touchmove",
+    (e) => {
+      const s = touchStart.get(canvas);
+      if (!s) return;
+      const t = e.touches[0];
+      if (
+        Math.abs(t.clientX - s.x) > PAN_MOVE_TOLERANCE ||
+        Math.abs(t.clientY - s.y) > PAN_MOVE_TOLERANCE
+      ) {
+        clearPressTimer(canvas);
+      }
+    },
+    { passive: true }
+  );
+
+  canvas.addEventListener(
+    "touchend",
+    (e) => {
+      const s = touchStart.get(canvas);
+      clearPressTimer(canvas);
+      if (s && e.changedTouches.length === 1) {
+        const ct = e.changedTouches[0];
+        const moved =
+          Math.abs(ct.clientX - s.x) > PAN_MOVE_TOLERANCE ||
+          Math.abs(ct.clientY - s.y) > PAN_MOVE_TOLERANCE;
+        const quick = Date.now() - s.t < 250;
+        // Tap on an armed chart exits pan mode.
+        if (armedCanvases.has(canvas) && quick && !moved) {
+          setPanMode(canvas, false);
+        }
+      }
+      touchStart.delete(canvas);
+    },
+    { passive: true }
+  );
+
+  canvas.addEventListener(
+    "touchcancel",
+    () => {
+      clearPressTimer(canvas);
+      touchStart.delete(canvas);
+    },
+    { passive: true }
+  );
+}
+
+function markZoomed(chart: Chart): void {
   const container = chart.canvas.closest(".chart-container");
   container?.classList.add("zoomed");
 }
 
-// Companion plugin: injects the reset button + responsive styles into each
-// chart's canvas root once, right after the chart is constructed.
+// Companion plugin: injects reset button + hint + pan indicator into each
+// chart's canvas root, asserts touch-action, and wires touch long-press pan.
 const zoomOverlayPlugin = {
   id: "zoomOverlay",
   afterInit(chart: Chart) {
@@ -96,51 +248,63 @@ const zoomOverlayPlugin = {
     if (!container) return;
 
     const root = canvas.getRootNode() as ShadowRoot | Document;
-
-    // Inject the stylesheet once per root (ShadowRoot or document head).
-    if (root.nodeType === 11 /* Document.DOCUMENT_FRAGMENT_NODE (ShadowRoot) */) {
+    if (root.nodeType === 11 /* ShadowRoot */) {
       if (!(root as ShadowRoot).querySelector("style[data-chart-zoom]")) {
         const style = document.createElement("style");
         style.setAttribute("data-chart-zoom", "");
         style.textContent = CHART_ZOOM_CSS;
         (root as ShadowRoot).appendChild(style);
       }
-    } else {
-      if (!document.getElementById("chart-zoom-style")) {
-        const style = document.createElement("style");
-        style.id = "chart-zoom-style";
-        style.textContent = CHART_ZOOM_CSS;
-        document.head.appendChild(style);
-      }
+    } else if (!document.getElementById("chart-zoom-style")) {
+      const style = document.createElement("style");
+      style.id = "chart-zoom-style";
+      style.textContent = CHART_ZOOM_CSS;
+      document.head.appendChild(style);
     }
 
-    // Ensure the container is the positioning context for the button.
     container.classList.add("chart-container");
 
-    if (container.querySelector(".chart-zoom-reset")) return;
+    if (!container.querySelector(".chart-zoom-reset")) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "chart-zoom-reset";
+      btn.title = "Reset zoom";
+      btn.setAttribute("aria-label", "Reset zoom");
+      btn.textContent = "⤢";
+      container.appendChild(btn);
+    }
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "chart-zoom-reset";
-    btn.title = "Reset zoom";
-    btn.setAttribute("aria-label", "Reset zoom");
-    btn.textContent = "⤢";
+    if (!container.querySelector(".chart-zoom-hint")) {
+      const hint = document.createElement("span");
+      hint.className = "chart-zoom-hint";
+      if (isTouchDevice()) {
+        hint.classList.add("touch-hint");
+        hint.textContent = "pinch to zoom · hold to pan";
+      } else {
+        hint.textContent = "scroll to zoom · drag to pan";
+      }
+      container.appendChild(hint);
+    }
 
-    const hint = document.createElement("span");
-    hint.className = "chart-zoom-hint";
-    hint.textContent = "scroll/pinch to zoom · drag to pan";
+    if (!container.querySelector(".chart-pan-indicator")) {
+      const ind = document.createElement("span");
+      ind.className = "chart-pan-indicator";
+      ind.textContent = "✋ Pan mode — drag to pan · tap to exit";
+      ind.addEventListener("click", () => setPanMode(canvas, false));
+      container.appendChild(ind);
+    }
 
-    container.appendChild(btn);
-    container.appendChild(hint);
+    attachTouchPan(canvas);
+    applyTouchAction(canvas);
+  },
+  afterUpdate(chart: Chart) {
+    // Re-assert touch-action in case hammerjs reset it on options/resize.
+    applyTouchAction(chart.canvas);
   },
 };
 
 let registered = false;
 
-/**
- * Register the zoom plugin, set global pan/zoom defaults, register the overlay
- * plugin, and wire global reset handlers. Safe to call multiple times.
- */
 export function registerChartZoom(): void {
   if (registered) return;
   registered = true;
@@ -148,13 +312,25 @@ export function registerChartZoom(): void {
   Chart.register(zoomPlugin);
   Chart.register(zoomOverlayPlugin);
 
-  // Global defaults: wheel + pinch zoom, drag pan, both axes. Drag-to-zoom is
-  // left disabled so a mouse drag pans instead of box-selecting.
   const panZoomDefaults = {
     pan: {
       enabled: true,
       mode: "xy" as const,
-      onPanComplete: ({ chart }: { chart: Chart }) => markZoomed(chart),
+      onPanStart: (ctx: { chart: Chart; event: { pointerType?: string } }) => {
+        // On touch, defer to page scroll unless the chart is in pan mode.
+        if (
+          isTouchDevice() &&
+          (ctx as any).event?.pointerType === "touch" &&
+          !armedCanvases.has(ctx.chart.canvas)
+        ) {
+          return false;
+        }
+        return undefined;
+      },
+      onPanComplete: ({ chart }: { chart: Chart }) => {
+        markZoomed(chart);
+        resetDisarmTimer(chart.canvas);
+      },
     },
     zoom: {
       wheel: { enabled: true, speed: 0.1 },
@@ -165,7 +341,8 @@ export function registerChartZoom(): void {
   };
   (Chart.defaults.plugins as unknown as Record<string, unknown>).zoom = panZoomDefaults;
 
-  // Global reset: button click (crosses Shadow DOM via composedPath).
+  // Reset zoom (and exit pan mode) via the overlay button. composedPath crosses
+  // Shadow DOM so this works for charts inside web components.
   document.addEventListener(
     "click",
     (e) => {
@@ -183,11 +360,12 @@ export function registerChartZoom(): void {
         chart.resetZoom();
         container?.classList.remove("zoomed");
       }
+      setPanMode(canvas as HTMLCanvasElement, false);
     },
     true
   );
 
-  // Global reset: double-click anywhere on a chart canvas (desktop convenience).
+  // Double-click on a canvas resets zoom + exits pan mode (desktop convenience).
   document.addEventListener(
     "dblclick",
     (e) => {
@@ -199,6 +377,7 @@ export function registerChartZoom(): void {
       const container = canvas.closest(".chart-container");
       chart.resetZoom();
       container?.classList.remove("zoomed");
+      setPanMode(canvas, false);
     },
     true
   );
