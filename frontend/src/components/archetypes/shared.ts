@@ -46,6 +46,7 @@ export const SHARED_STYLES = `
     display: block;
     height: 100%;
     overflow: auto;
+    container-type: inline-size;
   }
   .container {
     padding: 1rem;
@@ -244,6 +245,28 @@ export const SHARED_STYLES = `
     padding: 2rem;
     color: #64748b;
     font-size: 0.85rem;
+  }
+
+  /* === Responsive: narrow panels (mobile / single-column grid) === */
+  @container (max-width: 420px) {
+    .container { padding: 0.75rem; gap: 1rem; }
+    .header h2 { font-size: 1rem; }
+    .header { gap: 0.5rem; }
+    /* Stack chart title above its explainer instead of side-by-side */
+    .chart-header {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.4rem;
+    }
+    .chart-explainer { max-width: 100%; }
+    .chart-section { padding: 0.75rem; }
+    .chart-container { height: 240px; }
+    .chart-title { font-size: 0.9rem; }
+    .chart-explainer { font-size: 0.78rem; }
+    .ticker-badge { font-size: 0.78rem; padding: 0.25rem 0.55rem; }
+    .metric-badge { font-size: 0.72rem; }
+    .insight-item { font-size: 0.8rem; line-height: 1.45; }
+    .insights-section { padding: 0.6rem 0.75rem; }
   }
 `;
 

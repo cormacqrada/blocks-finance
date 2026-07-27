@@ -35,6 +35,22 @@ import { FINANCE_RECIPES_REGISTRY } from "./recipes/financeRecipes";
 import { renderUniverseInsights } from "./components/UniverseInsights";
 import { GridStack } from "gridstack";
 import "gridstack/dist/gridstack.css";
+import { registerChartZoom } from "./utils/chartZoom";
+
+// Enable wheel/pinch zoom + drag pan (and a per-chart reset button) on every
+// Chart.js instance app-wide. Idempotent; must run before any chart is created.
+registerChartZoom();
+
+// Responsive GridStack: collapse to a single column on small screens so panels
+// stay useable/legible on phones. Tracked so we only re-render on breakpoint change.
+const MOBILE_BREAKPOINT = 700;
+function responsiveColumns(): number {
+  return window.innerWidth <= MOBILE_BREAKPOINT ? 1 : 12;
+}
+function responsiveCellHeight(): number {
+  return window.innerWidth <= MOBILE_BREAKPOINT ? 110 : 80;
+}
+let lastColumns = responsiveColumns();
 
 // Default panels to show on load
 const DEFAULT_PANELS: PanelConfig[] = [
@@ -333,10 +349,10 @@ function renderDashboard() {
     gridEl.appendChild(gridItem);
   }
   
-  // Initialize GridStack
+  // Initialize GridStack (responsive: 1 column on mobile, 12 on desktop)
   grid = GridStack.init({
-    column: 12,
-    cellHeight: 80,
+    column: responsiveColumns(),
+    cellHeight: responsiveCellHeight(),
     margin: 8,
     float: true,
     animate: true,
@@ -929,6 +945,24 @@ window.addEventListener("popstate", (e) => {
     currentView = "dashboard";
   }
   renderCurrentView();
+});
+
+// Reflow the dashboard grid when crossing the mobile breakpoint (debounced).
+let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+function reflowIfBreakpointChanged(): void {
+  const next = responsiveColumns();
+  if (next !== lastColumns) {
+    lastColumns = next;
+    if (currentView === "dashboard") renderDashboard();
+  }
+}
+window.addEventListener("resize", () => {
+  if (resizeTimer) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(reflowIfBreakpointChanged, 200);
+});
+window.addEventListener("orientationchange", () => {
+  // Re-evaluate after rotation settles.
+  setTimeout(reflowIfBreakpointChanged, 250);
 });
 
 // Parse initial URL
